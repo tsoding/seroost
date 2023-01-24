@@ -2,6 +2,7 @@ use std::io;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use xml::reader::{XmlEvent, EventReader};
+use xml::common::{Position, TextPosition};
 use std::collections::HashMap;
 use std::env;
 use std::process::exit;
@@ -61,17 +62,25 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
-fn read_entire_xml_file<P: AsRef<Path>>(file_path: P) -> io::Result<String> {
-    let file = File::open(file_path)?;
+fn parse_entire_xml_file(file_path: &Path) -> Option<String> {
+    let file = File::open(&file_path).map_err(|err| {
+        eprintln!("ERROR: could not open file {file_path}: {err}", file_path = file_path.display());
+    }).ok()?;
     let er = EventReader::new(file);
     let mut content = String::new();
     for event in er.into_iter() {
-        if let XmlEvent::Characters(text) = event.expect("TODO") {
+        let event = event.map_err(|err| {
+            let TextPosition {row, column} = err.position();
+            let msg = err.msg();
+            eprintln!("{file_path}:{row}:{column}: ERROR: {msg}", file_path = file_path.display());
+        }).ok()?;
+
+        if let XmlEvent::Characters(text) = event {
             content.push_str(&text);
             content.push_str(" ");
         }
     }
-    Ok(content)
+    Some(content)
 }
 
 type TermFreq = HashMap::<String, usize>;
@@ -89,14 +98,15 @@ fn index_folder(dir_path: &str) -> io::Result<()> {
     let dir = fs::read_dir(dir_path)?;
     let mut tf_index = TermFreqIndex::new();
 
-    for file in dir {
+    'next_file: for file in dir {
         let file_path = file?.path();
 
         println!("Indexing {:?}...", &file_path);
 
-        let content = read_entire_xml_file(&file_path)?
-            .chars()
-            .collect::<Vec<_>>();
+        let content = match parse_entire_xml_file(&file_path) {
+            Some(content) => content.chars().collect::<Vec<_>>(),
+            None => continue 'next_file,
+        };
 
         let mut tf = TermFreq::new();
 
