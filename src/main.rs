@@ -1,11 +1,10 @@
-use std::io;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use xml::reader::{XmlEvent, EventReader};
 use xml::common::{Position, TextPosition};
 use std::collections::HashMap;
 use std::env;
-use std::process::exit;
+use std::result::Result;
 
 struct Lexer<'a> {
     content: &'a [char],
@@ -62,10 +61,10 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
-fn parse_entire_xml_file(file_path: &Path) -> Option<String> {
+fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     let file = File::open(&file_path).map_err(|err| {
         eprintln!("ERROR: could not open file {file_path}: {err}", file_path = file_path.display());
-    }).ok()?;
+    })?;
     let er = EventReader::new(file);
     let mut content = String::new();
     for event in er.into_iter() {
@@ -73,39 +72,65 @@ fn parse_entire_xml_file(file_path: &Path) -> Option<String> {
             let TextPosition {row, column} = err.position();
             let msg = err.msg();
             eprintln!("{file_path}:{row}:{column}: ERROR: {msg}", file_path = file_path.display());
-        }).ok()?;
+        })?;
 
         if let XmlEvent::Characters(text) = event {
             content.push_str(&text);
             content.push_str(" ");
         }
     }
-    Some(content)
+    Ok(content)
 }
 
 type TermFreq = HashMap::<String, usize>;
 type TermFreqIndex = HashMap<PathBuf, TermFreq>;
 
-fn check_index(index_path: &str) -> io::Result<()> {
-    let index_file = File::open(index_path)?;
+fn check_index(index_path: &str) -> Result<(), ()> {
     println!("Reading {index_path} index file...");
-    let tf_index: TermFreqIndex = serde_json::from_reader(index_file).expect("serde does not fail");
+
+    let index_file = File::open(index_path).map_err(|err| {
+        eprintln!("ERROR: could not open index file {index_path}: {err}");
+    })?;
+
+    let tf_index: TermFreqIndex = serde_json::from_reader(index_file).map_err(|err| {
+        eprintln!("ERROR: could not parse index file {index_path}: {err}");
+    })?;
+
     println!("{index_path} contains {count} files", count = tf_index.len());
+
     Ok(())
 }
 
-fn index_folder(dir_path: &str) -> io::Result<()> {
-    let dir = fs::read_dir(dir_path)?;
+fn save_tf_index(tf_index: &TermFreqIndex, index_path: &str) -> Result<(), ()> {
+    println!("Saving {index_path}...");
+
+    let index_file = File::create(index_path).map_err(|err| {
+        eprintln!("ERROR: could not create index file {index_path}: {err}");
+    })?;
+
+    serde_json::to_writer(index_file, &tf_index).map_err(|err| {
+        eprintln!("ERROR: could not serialize index into file {index_path}: {err}");
+    })?;
+
+    Ok(())
+}
+
+fn tf_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
+    let dir = fs::read_dir(dir_path).map_err(|err| {
+        eprintln!("ERROR: could not open directory {dir_path} for indexing: {err}");
+    })?;
     let mut tf_index = TermFreqIndex::new();
 
     'next_file: for file in dir {
-        let file_path = file?.path();
+        let file_path = file.map_err(|err| {
+            eprintln!("ERROR: could not read next file in directory {dir_path} during indexing: {err}");
+        })?.path();
 
         println!("Indexing {:?}...", &file_path);
 
         let content = match parse_entire_xml_file(&file_path) {
-            Some(content) => content.chars().collect::<Vec<_>>(),
-            None => continue 'next_file,
+            Ok(content) => content.chars().collect::<Vec<_>>(),
+            Err(()) => continue 'next_file,
         };
 
         let mut tf = TermFreq::new();
@@ -126,48 +151,38 @@ fn index_folder(dir_path: &str) -> io::Result<()> {
         tf_index.insert(file_path, tf);
     }
 
-    let index_path = "index.json";
-    println!("Saving {index_path}...");
-    let index_file = File::create(index_path)?;
-    serde_json::to_writer(index_file, &tf_index).expect("serde works fine");
-
-    Ok(())
+    Ok(tf_index)
 }
 
-fn main() {
+fn main() -> Result<(), ()> {
     let mut args = env::args();
     let _program = args.next().expect("path to program is provided");
 
-    let subcommand = args.next().unwrap_or_else(|| {
+    let subcommand = args.next().ok_or_else(|| {
         println!("ERROR: no subcommand is provided");
-        exit(1)
-    });
+    })?;
 
     match subcommand.as_str() {
         "index" => {
-            let dir_path = args.next().unwrap_or_else(|| {
+            let dir_path = args.next().ok_or_else(|| {
                 println!("ERROR: no directory is provided for {subcommand} subcommand");
-                exit(1);
-            });
+            })?;
 
-            index_folder(&dir_path).unwrap_or_else(|err| {
-                println!("ERROR: could not index folder {dir_path}: {err}");
-                exit(1);
-            });
+            let tf_index = tf_index_of_folder(&dir_path)?;
+            save_tf_index(&tf_index, "index.json")?;
         },
         "search" => {
-            let index_path = args.next().unwrap_or_else(|| {
+            let index_path = args.next().ok_or_else(|| {
                 println!("ERROR: no path to index is provided for {subcommand} subcommand");
-                exit(1);
-            });
-            check_index(&index_path).unwrap_or_else(|err| {
-                println!("ERROR: could not check index file {index_path}: {err}");
-                exit(1);
-            });
+            })?;
+
+            check_index(&index_path)?;
         }
         _ => {
             println!("ERROR: unknown subcommand {subcommand}");
-            exit(1)
+            return Err(());
         }
     }
+
+    Ok(())
 }
