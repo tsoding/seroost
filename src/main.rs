@@ -140,6 +140,8 @@ fn tf_index_of_folder(dir_path: &Path, tf_index: &mut TermFreqIndex) -> Result<(
             continue 'next_file;
         }
 
+        // TODO: how does this work with symlinks?
+
         println!("Indexing {:?}...", &file_path);
 
         let content = match parse_entire_xml_file(&file_path) {
