@@ -200,9 +200,6 @@ fn entry() -> Result<(), ()> {
 }
 
 fn main() -> ExitCode {
-    // https://github.com/rust-lang/rust/blob/c8e6a9e8b6251bbc8276cb78cabe1998deecbed7/library/std/src/process.rs#L2215
-    // Can the impl Termination for Result just return the corresponding exit code and not print anything to stderr please???
-    // I'm resposible enough to report my errors myself like an adult, thank you very much!
     match entry() {
         Ok(()) => ExitCode::SUCCESS,
         Err(()) => ExitCode::FAILURE,
