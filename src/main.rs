@@ -5,6 +5,7 @@ use xml::common::{Position, TextPosition};
 use std::collections::HashMap;
 use std::env;
 use std::result::Result;
+use std::process::ExitCode;
 
 struct Lexer<'a> {
     content: &'a [char],
@@ -154,18 +155,27 @@ fn tf_index_of_folder(dir_path: &str) -> Result<TermFreqIndex, ()> {
     Ok(tf_index)
 }
 
-fn main() -> Result<(), ()> {
+fn usage(program: &str) {
+    eprintln!("Usage: {program} [SUBCOMMAND] [OPTIONS]");
+    eprintln!("Subcommands:");
+    eprintln!("    index <folder>         index the <folder> and save the index to index.json file");
+    eprintln!("    search <index-file>    check how many documents are indexed in the file (searching is not implemented yet)");
+}
+
+fn entry() -> Result<(), ()> {
     let mut args = env::args();
-    let _program = args.next().expect("path to program is provided");
+    let program = args.next().expect("path to program is provided");
 
     let subcommand = args.next().ok_or_else(|| {
-        println!("ERROR: no subcommand is provided");
+        usage(&program);
+        eprintln!("ERROR: no subcommand is provided");
     })?;
 
     match subcommand.as_str() {
         "index" => {
             let dir_path = args.next().ok_or_else(|| {
-                println!("ERROR: no directory is provided for {subcommand} subcommand");
+                usage(&program);
+                eprintln!("ERROR: no directory is provided for {subcommand} subcommand");
             })?;
 
             let tf_index = tf_index_of_folder(&dir_path)?;
@@ -173,16 +183,28 @@ fn main() -> Result<(), ()> {
         },
         "search" => {
             let index_path = args.next().ok_or_else(|| {
-                println!("ERROR: no path to index is provided for {subcommand} subcommand");
+                usage(&program);
+                eprintln!("ERROR: no path to index is provided for {subcommand} subcommand");
             })?;
 
             check_index(&index_path)?;
         }
         _ => {
-            println!("ERROR: unknown subcommand {subcommand}");
+            usage(&program);
+            eprintln!("ERROR: unknown subcommand {subcommand}");
             return Err(());
         }
     }
 
     Ok(())
+}
+
+fn main() -> ExitCode {
+    // https://github.com/rust-lang/rust/blob/c8e6a9e8b6251bbc8276cb78cabe1998deecbed7/library/std/src/process.rs#L2215
+    // Can the impl Termination for Result just return the corresponding exit code and not print anything to stderr please???
+    // I'm resposible enough to report my errors myself like and adult, thank you very much!
+    match entry() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(()) => ExitCode::FAILURE,
+    }
 }
