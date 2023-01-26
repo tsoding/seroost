@@ -168,6 +168,9 @@ fn tf_index_of_folder(dir_path: &Path, tf_index: &mut TermFreqIndex) -> Result<(
     Ok(())
 }
 
+// TODO: Precache as much of tf-idf values as possible during indexing
+// TODO: Use sqlite3 to store the index
+
 fn tf(t: &str, d: &TermFreq) -> f32 {
     let a = d.get(t).cloned().unwrap_or(0) as f32;
     let b = d.iter().map(|(_, f)| *f).sum::<usize>() as f32;
