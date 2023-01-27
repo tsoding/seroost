@@ -195,9 +195,10 @@ fn serve_404(request: Request) -> Result<(), ()> {
 
 fn search_query<'a>(tf_index: &'a TermFreqIndex, query: &'a [char]) -> Vec<(&'a Path, f32)> {
     let mut result = Vec::<(&Path, f32)>::new();
+    let tokens = Lexer::new(&query).collect::<Vec<_>>();
     for (path, tf_table) in tf_index {
         let mut rank = 0f32;
-        for token in Lexer::new(&query) {
+        for token in &tokens {
             rank += tf(&token, &tf_table) * idf(&token, &tf_index);
         }
         result.push((path, rank));
