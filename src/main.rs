@@ -178,6 +178,7 @@ fn usage(program: &str) {
 fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> Result<(), ()> {
     let content_type_header = Header::from_bytes("Content-Type", content_type)
         .expect("That we didn't put any garbage in the headers");
+    // TODO: check if file exists and if it doesn't serve 404
     let file = File::open(file_path).map_err(|err| {
         eprintln!("ERROR: could not serve file {file_path}: {err}");
     })?;
