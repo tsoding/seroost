@@ -83,12 +83,14 @@ fn add_folder_to_model(dir_path: &Path, model: &mut Model) -> Result<(), ()> {
 
         let mut tf = TermFreq::new();
 
+        let mut n = 0;
         for term in Lexer::new(&content) {
             if let Some(freq) = tf.get_mut(&term) {
                 *freq += 1;
             } else {
                 tf.insert(term, 1);
             }
+            n += 1;
         }
 
         for t in tf.keys() {
@@ -99,7 +101,7 @@ fn add_folder_to_model(dir_path: &Path, model: &mut Model) -> Result<(), ()> {
             }
         }
 
-        model.tfpd.insert(file_path, tf);
+        model.tfpd.insert(file_path, (n, tf));
     }
 
     Ok(())
