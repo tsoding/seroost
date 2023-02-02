@@ -36,7 +36,7 @@ fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> i
     request.respond(Response::from_file(file).with_header(content_type_header))
 }
 
-fn serve_api_search(model: &InMemoryModel, mut request: Request) -> io::Result<()> {
+fn serve_api_search(model: &impl Model, mut request: Request) -> io::Result<()> {
     let mut buf = Vec::new();
     if let Err(err) = request.as_reader().read_to_end(&mut buf) {
         eprintln!("ERROR: could not read the body of the request: {err}");
@@ -66,7 +66,7 @@ fn serve_api_search(model: &InMemoryModel, mut request: Request) -> io::Result<(
     request.respond(Response::from_string(&json).with_header(content_type_header))
 }
 
-fn serve_request(model: &InMemoryModel, request: Request) -> io::Result<()> {
+fn serve_request(model: &impl Model, request: Request) -> io::Result<()> {
     println!("INFO: received request! method: {:?}, url: {:?}", request.method(), request.url());
 
     match (request.method(), request.url()) {
@@ -85,7 +85,7 @@ fn serve_request(model: &InMemoryModel, request: Request) -> io::Result<()> {
     }
 }
 
-pub fn start(address: &str, model: &InMemoryModel) -> Result<(), ()> {
+pub fn start(address: &str, model: &impl Model) -> Result<(), ()> {
     let server = Server::http(&address).map_err(|err| {
         eprintln!("ERROR: could not start HTTP server at {address}: {err}");
     })?;
