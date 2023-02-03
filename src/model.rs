@@ -3,8 +3,6 @@ use std::path::{PathBuf, Path};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 
-// TODO: Use sqlite3 to store the index
-
 pub trait Model {
     fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()>;
     fn add_document(&mut self, path: PathBuf, content: &[char]) -> Result<(), ()>;
