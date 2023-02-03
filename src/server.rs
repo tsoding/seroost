@@ -36,6 +36,8 @@ fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> i
     request.respond(Response::from_file(file).with_header(content_type_header))
 }
 
+// TODO: the errors of serve_api_search should probably return JSON
+// 'Cause that's what expected from them.
 fn serve_api_search(model: &impl Model, mut request: Request) -> io::Result<()> {
     let mut buf = Vec::new();
     if let Err(err) = request.as_reader().read_to_end(&mut buf) {

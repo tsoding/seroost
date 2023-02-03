@@ -155,11 +155,16 @@ impl Model for SqliteModel {
 
 type DocFreq = HashMap<String, usize>;
 type TermFreq = HashMap<String, usize>;
-type TermFreqPerDoc = HashMap<PathBuf, (usize, TermFreq)>;
+#[derive(Default, Deserialize, Serialize)]
+struct Doc {
+    tf: TermFreq,
+    count: usize,
+}
+type Docs = HashMap<PathBuf, Doc>;
 
 #[derive(Default, Deserialize, Serialize)]
 pub struct InMemoryModel {
-    tfpd: TermFreqPerDoc,
+    docs: Docs,
     df: DocFreq,
 }
 
@@ -167,10 +172,10 @@ impl Model for InMemoryModel {
     fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
         let mut result = Vec::new();
         let tokens = Lexer::new(&query).collect::<Vec<_>>();
-        for (path, (n, tf_table)) in &self.tfpd {
+        for (path, doc) in &self.docs {
             let mut rank = 0f32;
             for token in &tokens {
-                rank += compute_tf(&token, *n, tf_table) * compute_idf(&token, self.tfpd.len(), &self.df);
+                rank += compute_tf(token, doc) * compute_idf(&token, self.docs.len(), &self.df);
             }
             result.push((path.clone(), rank));
         }
@@ -182,14 +187,14 @@ impl Model for InMemoryModel {
     fn add_document(&mut self, file_path: PathBuf, content: &[char]) -> Result<(), ()> {
         let mut tf = TermFreq::new();
 
-        let mut n = 0;
+        let mut count = 0;
         for term in Lexer::new(content) {
             if let Some(freq) = tf.get_mut(&term) {
                 *freq += 1;
             } else {
                 tf.insert(term, 1);
             }
-            n += 1;
+            count += 1;
         }
 
         for t in tf.keys() {
@@ -200,18 +205,18 @@ impl Model for InMemoryModel {
             }
         }
 
-        self.tfpd.insert(file_path, (n, tf));
+        self.docs.insert(file_path, Doc {count, tf});
         Ok(())
     }
 }
 
-pub fn compute_tf(t: &str, n: usize, d: &TermFreq) -> f32 {
-    let n = n as f32;
-    let m = d.get(t).cloned().unwrap_or(0) as f32;
+fn compute_tf(t: &str, doc: &Doc) -> f32 {
+    let n = doc.count as f32;
+    let m = doc.tf.get(t).cloned().unwrap_or(0) as f32;
     m / n
 }
 
-pub fn compute_idf(t: &str, n: usize, df: &DocFreq) -> f32 {
+fn compute_idf(t: &str, n: usize, df: &DocFreq) -> f32 {
     let n = n as f32;
     let m = df.get(t).cloned().unwrap_or(1) as f32;
     (n / m).log10()
