@@ -11,6 +11,7 @@ use std::io::{BufReader, BufWriter};
 mod model;
 use model::*;
 mod server;
+mod lexer;
 
 fn parse_entire_txt_file(file_path: &Path) -> Result<String, ()> {
     fs::read_to_string(file_path).map_err(|err| {
