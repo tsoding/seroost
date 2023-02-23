@@ -153,27 +153,34 @@ fn entry() -> Result<(), ()> {
 
             let mut skipped = 0;
 
-            if use_sqlite_mode {
-                let index_path = "index.db";
+            let (res, time) = measure_time(|| {
+                if use_sqlite_mode {
+                    let index_path = "index.db";
 
-                if let Err(err) = fs::remove_file(index_path) {
-                    if err.kind() != std::io::ErrorKind::NotFound {
-                        eprintln!("ERROR: could not delete file {index_path}: {err}");
-                        return Err(())
+                    if let Err(err) = fs::remove_file(index_path) {
+                        if err.kind() != std::io::ErrorKind::NotFound {
+                            eprintln!("ERROR: could not delete file {index_path}: {err}");
+                            return Err(())
+                        }
                     }
-                }
 
-                let mut model = SqliteModel::open(Path::new(index_path))?;
-                model.begin()?;
-                add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
-                // TODO: implement a special transaction object that implements Drop trait and commits the transaction when it goes out of scope
-                model.commit()?;
-            } else {
-                let index_path = "index.json";
-                let mut model = Default::default();
-                add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
-                save_model_as_json(&model, index_path)?;
-            }
+                    let mut model = SqliteModel::open(Path::new(index_path))?;
+                    model.begin()?;
+                    add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
+                    // TODO: implement a special transaction object that implements Drop trait and commits the transaction when it goes out of scope
+                    model.commit()?;
+                } else {
+                    let index_path = "index.json";
+                    let mut model = Default::default();
+                    add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
+                    save_model_as_json(&model, index_path)?;
+                }
+                Ok(())
+            });
+
+            eprintln!("Indexed in {time} s");
+
+            res?;
 
             println!("Skipped {skipped} files.");
             Ok(())
@@ -249,4 +256,10 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(()) => ExitCode::FAILURE,
     }
+}
+
+fn measure_time<T>(f: impl FnOnce() -> T) -> (T, f64) {
+    let start = std::time::Instant::now();
+    let ret = f();
+    (ret, start.elapsed().as_secs_f64())
 }

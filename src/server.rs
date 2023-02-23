@@ -2,6 +2,8 @@ use std::fs::File;
 use std::str;
 use std::io;
 
+use crate::measure_time;
+
 use super::model::*;
 
 use tiny_http::{Server, Request, Response, Header, Method, StatusCode};
@@ -76,7 +78,9 @@ fn serve_request(model: &impl Model, request: Request) -> io::Result<()> {
 
     match (request.method(), request.url()) {
         (Method::Post, "/api/search") => {
-            serve_api_search(model, request)
+            let (res, time) = measure_time(|| serve_api_search(model, request));
+            eprintln!("Search in {time}");
+            res
         }
         (Method::Get, "/index.js") => {
             serve_static_file(request, "index.js", "text/javascript; charset=utf-8")
