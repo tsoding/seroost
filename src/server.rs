@@ -84,6 +84,16 @@ fn serve_request(model: &impl Model, request: Request) -> io::Result<()> {
         (Method::Get, "/") | (Method::Get, "/index.html") => {
             serve_static_file(request, "index.html", "text/html; charset=utf-8")
         }
+        (Method::Get, path) => {
+            if path.starts_with("/files/") {
+                // Make an owned copy to avoid borrow error
+                // TODO: sanitize URL to avoid host file system with "../", although the application shouldn't be used on the web
+                let rest = path["/files/".len()..].to_owned();
+                serve_static_file(request, &rest, "text/xml")
+            } else {
+                serve_404(request)
+            }
+        }
         _ => {
             serve_404(request)
         }
