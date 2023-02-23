@@ -94,23 +94,28 @@ impl Model for SqliteModel {
             }
         });
 
-        let freq = tokens.iter().map(|term| self.query_tf(term)).collect::<Result<Vec<_>, _>>()?;
-
-        let num_documents = None;
-        self.connection.iterate("SELECT count(*) from Documents", |row| {
-            num_documents = row[0].0.parse::<usize>().ok();
-            true
-        });
-        let num_documents = num_documents.ok_or(())?;
-
         let log_err = |err| {
-            eprintln!("ERROR: Could not execute query {query}: {err}");
+            eprintln!("ERROR: Could not execute query {query:?}: {err}");
         };
 
-        self.connection.iterate("SELECT id, term_count FROM Documents", |row| {
+        let freqs = tokens.iter().map(|term| self.query_tf(term)).collect::<Result<Vec<_>, _>>()?;
+        let mut df = DocFreq::new();
+        for (term, freq) in tokens.iter().zip(freqs.iter()) {
+            df.insert(term.clone(), *freq as usize);
+        }
+
+        let mut num_documents = None;
+        self.connection.iterate("SELECT count(*) from Documents", |pairs| {
+            num_documents = pairs[0].1.unwrap().parse::<usize>().ok();
+            true
+        }).map_err(log_err)?;
+        let num_documents = num_documents.ok_or(())?;
+
+        self.connection.iterate("SELECT id, path, term_count FROM Documents", |row| {
         // for (path, doc) in &self.docs {
-            let Ok(id) = row[0].0.parse::<i32>() else { return true };
-            let term_count = row[1].0.parse().expect("term_count should be an integer");
+            let Ok(id) = row[0].1.unwrap().parse::<i32>() else { return true };
+            let path = row[1].1.unwrap();
+            let term_count = row[2].1.unwrap().parse().expect("term_count should be an integer");
             // let mut doc = Doc::default();
             // for (field, value) in row {
             //     match field {
@@ -121,25 +126,25 @@ impl Model for SqliteModel {
             for token in &tokens {
                 let mut doc = Doc::default();
                 doc.count = term_count;
-                self.connection.iterate(format!("SELECT term, doc_id, freq FROM TermFreq WHERE term = {token} AND doc_id = {id}"), |row| {
-                    doc.tf.insert(row[0].0.to_owned(), row[2].0.parse().expect("Freq should be usize"));
-                    true
-                });
-
-                let stmt = self.connection.prepare("SELECT term, freq FROM DocFreq WHERE term = :token").map_err(log_err)?;
-                stmt.bind_iter::<_, (_, sqlite::Value)>([
+                let Ok(mut stmt) = self.connection.prepare("SELECT doc_id, freq FROM TermFreq WHERE term = :token AND doc_id = :id")
+                    .map_err(log_err) else { return false };
+                let Ok(_) = stmt.bind_iter::<_, (_, sqlite::Value)>([
                     (":token", token.as_str().into()),
-                ]).map_err(log_err)?;
-                stmt.next().map_err(log_err)?;
-                doc.tf.insert(row[0].0.to_owned(), row[2].0.parse().expect("Freq should be usize"));
+                    (":id", (id as i64).into()),
+                ]).map_err(log_err) else {return false};
+                if let Ok(_) = stmt.next() {
+                    let Ok(freq) = stmt.read::<i64, _>("freq").map_err(log_err) else {return false};
+                    doc.tf.insert(token.to_owned(), freq as usize);
+                }
 
-                rank += compute_tf(token, &doc) * compute_idf(&token, num_documents, &self.df);
-                true
+                rank += compute_tf(token, &doc) * compute_idf(&token, num_documents, &df);
             }
-            result.push((path.clone(), rank));
+            if rank.is_finite() {
+                result.push((PathBuf::from(path), rank));
+            }
             true
-        });
-        result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).unwrap());
+        }).map_err(log_err)?;
+        result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).expect("Rank should be comparable"));
         result.reverse();
         Ok(result)
     }
