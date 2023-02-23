@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::num;
 use std::path::{PathBuf, Path};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
@@ -27,6 +28,21 @@ impl SqliteModel {
 
     pub fn commit(&self) -> Result<(), ()> {
         self.execute("COMMIT;")
+    }
+
+    pub fn query_tf(&self, term: &str) -> Result<i64, ()> {
+        let query = "SELECT freq FROM DocFreq WHERE term = :term";
+        let log_err = |err| {
+            eprintln!("ERROR: Could not execute query {query}: {err}");
+        };
+        let mut stmt = self.connection.prepare(query).map_err(log_err)?;
+        stmt.bind_iter::<_, (_, sqlite::Value)>([
+            (":term", term.into()),
+        ]).map_err(log_err)?;
+        Ok(match stmt.next().map_err(log_err)? {
+            sqlite::State::Row => stmt.read::<i64, _>("freq").map_err(log_err)?,
+            sqlite::State::Done => 0
+        })
     }
 
     pub fn open(path: &Path) -> Result<Self, ()> {
@@ -67,8 +83,65 @@ impl SqliteModel {
 }
 
 impl Model for SqliteModel {
-    fn search_query(&self, _query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
-        todo!()
+    fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
+        let mut result = Vec::new();
+        let tokens = Lexer::new(&query).collect::<Vec<_>>();
+        let token_list = tokens.iter().fold("".to_owned(), |acc, cur| {
+            if acc.is_empty() {
+                format!("\"{cur}\"")
+            } else {
+                acc + &format!(", \"{cur}\"")
+            }
+        });
+
+        let freq = tokens.iter().map(|term| self.query_tf(term)).collect::<Result<Vec<_>, _>>()?;
+
+        let num_documents = None;
+        self.connection.iterate("SELECT count(*) from Documents", |row| {
+            num_documents = row[0].0.parse::<usize>().ok();
+            true
+        });
+        let num_documents = num_documents.ok_or(())?;
+
+        let log_err = |err| {
+            eprintln!("ERROR: Could not execute query {query}: {err}");
+        };
+
+        self.connection.iterate("SELECT id, term_count FROM Documents", |row| {
+        // for (path, doc) in &self.docs {
+            let Ok(id) = row[0].0.parse::<i32>() else { return true };
+            let term_count = row[1].0.parse().expect("term_count should be an integer");
+            // let mut doc = Doc::default();
+            // for (field, value) in row {
+            //     match field {
+            //         "term" => doc.term = value,
+            //     }
+            // }
+            let mut rank = 0f32;
+            for token in &tokens {
+                let mut doc = Doc::default();
+                doc.count = term_count;
+                self.connection.iterate(format!("SELECT term, doc_id, freq FROM TermFreq WHERE term = {token} AND doc_id = {id}"), |row| {
+                    doc.tf.insert(row[0].0.to_owned(), row[2].0.parse().expect("Freq should be usize"));
+                    true
+                });
+
+                let stmt = self.connection.prepare("SELECT term, freq FROM DocFreq WHERE term = :token").map_err(log_err)?;
+                stmt.bind_iter::<_, (_, sqlite::Value)>([
+                    (":token", token.as_str().into()),
+                ]).map_err(log_err)?;
+                stmt.next().map_err(log_err)?;
+                doc.tf.insert(row[0].0.to_owned(), row[2].0.parse().expect("Freq should be usize"));
+
+                rank += compute_tf(token, &doc) * compute_idf(&token, num_documents, &self.df);
+                true
+            }
+            result.push((path.clone(), rank));
+            true
+        });
+        result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).unwrap());
+        result.reverse();
+        Ok(result)
     }
 
     fn add_document(&mut self, path: PathBuf, content: &[char]) -> Result<(), ()> {
