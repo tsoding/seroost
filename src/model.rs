@@ -84,17 +84,15 @@ impl SqliteModel {
 impl Model for SqliteModel {
     fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
         let mut result = Vec::new();
-        let tokens = Lexer::new(&query).collect::<Vec<_>>();
 
         let log_err = |err| {
             eprintln!("ERROR: Could not execute query {query:?}: {err}");
         };
 
-        let freqs = tokens.iter().map(|term| self.query_tf(term)).collect::<Result<Vec<_>, _>>()?;
-        let mut df = DocFreq::new();
-        for (term, freq) in tokens.iter().zip(freqs.iter()) {
-            df.insert(term.clone(), *freq as usize);
-        }
+        let token_freqs = Lexer::new(&query).map(|term| {
+            let freq = self.query_tf(&term)? as usize;
+            Ok((term, freq))
+        }).collect::<Result<DocFreq, _>>()?;
 
         let mut num_documents = None;
         self.connection.iterate("SELECT count(*) from Documents", |pairs| {
@@ -108,7 +106,7 @@ impl Model for SqliteModel {
             let path = row[1].1.unwrap();
             let term_count = row[2].1.unwrap().parse().expect("term_count should be an integer");
             let mut rank = 0f32;
-            for token in &tokens {
+            for token in token_freqs.keys() {
                 let mut doc = Doc::default();
                 doc.count = term_count;
                 let Ok(mut stmt) = self.connection.prepare("SELECT doc_id, freq FROM TermFreq WHERE term = :token AND doc_id = :id")
@@ -122,7 +120,7 @@ impl Model for SqliteModel {
                     doc.tf.insert(token.to_owned(), freq as usize);
                 }
 
-                rank += compute_tf(token, &doc) * compute_idf(&token, num_documents, &df);
+                rank += compute_tf(token, &doc) * compute_idf(&token, num_documents, &token_freqs);
             }
             if rank.is_finite() {
                 result.push((PathBuf::from(path), rank));
