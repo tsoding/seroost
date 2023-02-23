@@ -227,19 +227,29 @@ fn entry() -> Result<(), ()> {
             let address = args.next().unwrap_or("127.0.0.1:6969".to_string());
 
             if use_sqlite_mode {
-                let model = SqliteModel::open(Path::new(&index_path))?;
+                let (res, time) = measure_time(|| {
+                    SqliteModel::open(Path::new(&index_path))
+                });
 
-                server::start(&address, &model)
+                eprintln!("Load index file (sqlite): {time} s");
+
+                server::start(&address, &res?)
             } else {
-                let index_file = File::open(&index_path).map_err(|err| {
-                    eprintln!("ERROR: could not open index file {index_path}: {err}");
-                })?;
+                let (res, time) = measure_time(|| {
+                    let index_file = File::open(&index_path).map_err(|err| {
+                        eprintln!("ERROR: could not open index file {index_path}: {err}");
+                    })?;
 
-                let model: InMemoryModel = serde_json::from_reader(index_file).map_err(|err| {
-                    eprintln!("ERROR: could not parse index file {index_path}: {err}");
-                })?;
+                    let model: InMemoryModel = serde_json::from_reader(index_file).map_err(|err| {
+                        eprintln!("ERROR: could not parse index file {index_path}: {err}");
+                    })?;
 
-                server::start(&address, &model)
+                    Ok(model)
+                });
+
+                eprintln!("Load index file: {time} s");
+
+                server::start(&address, &res?)
             }
         }
 
