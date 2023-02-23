@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::num;
 use std::path::{PathBuf, Path};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
@@ -86,13 +85,6 @@ impl Model for SqliteModel {
     fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
         let mut result = Vec::new();
         let tokens = Lexer::new(&query).collect::<Vec<_>>();
-        let token_list = tokens.iter().fold("".to_owned(), |acc, cur| {
-            if acc.is_empty() {
-                format!("\"{cur}\"")
-            } else {
-                acc + &format!(", \"{cur}\"")
-            }
-        });
 
         let log_err = |err| {
             eprintln!("ERROR: Could not execute query {query:?}: {err}");
@@ -112,16 +104,9 @@ impl Model for SqliteModel {
         let num_documents = num_documents.ok_or(())?;
 
         self.connection.iterate("SELECT id, path, term_count FROM Documents", |row| {
-        // for (path, doc) in &self.docs {
             let Ok(id) = row[0].1.unwrap().parse::<i32>() else { return true };
             let path = row[1].1.unwrap();
             let term_count = row[2].1.unwrap().parse().expect("term_count should be an integer");
-            // let mut doc = Doc::default();
-            // for (field, value) in row {
-            //     match field {
-            //         "term" => doc.term = value,
-            //     }
-            // }
             let mut rank = 0f32;
             for token in &tokens {
                 let mut doc = Doc::default();
