@@ -197,11 +197,18 @@ fn entry() -> Result<(), ()> {
             })?.chars().collect::<Vec<_>>();
 
             if use_sqlite_mode {
-                let model = SqliteModel::open(Path::new(&index_path))?;
+                let (res, time) = measure_time(|| {
+                    let model = SqliteModel::open(Path::new(&index_path))?;
 
-                for (path, rank) in model.search_query(&prompt)?.iter().take(20) {
-                    println!("{path} {rank}", path = path.display());
-                }
+                    for (path, rank) in model.search_query(&prompt)?.iter().take(20) {
+                        println!("{path} {rank}", path = path.display());
+                    }
+                    Ok(())
+                });
+
+                res?;
+
+                eprintln!("Sqlite search time: {time} s");
             } else {
                 let index_file = File::open(&index_path).map_err(|err| {
                     eprintln!("ERROR: could not open index file {index_path}: {err}");
