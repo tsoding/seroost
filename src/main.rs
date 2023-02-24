@@ -73,7 +73,7 @@ fn save_model_as_json(model: &InMemoryModel, index_path: &str) -> Result<(), ()>
 }
 
 fn load_model(path: &str) -> Result<InMemoryModel, ()> {
-    let index_file = File::open(&path).map_err(|err| {
+    let index_file = File::open(path).map_err(|err| {
         eprintln!("ERROR: could not open index file {path}: {err}");
     })?;
 
