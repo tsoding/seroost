@@ -72,6 +72,16 @@ fn save_model_as_json(model: &InMemoryModel, index_path: &str) -> Result<(), ()>
     Ok(())
 }
 
+fn load_model(path: &str) -> Result<InMemoryModel, ()> {
+    let index_file = File::open(&path).map_err(|err| {
+        eprintln!("ERROR: could not open index file {path}: {err}");
+    })?;
+
+    serde_json::from_reader(BufReader::new(index_file)).map_err(|err| {
+        eprintln!("ERROR: could not parse index file {path}: {err}");
+    })
+}
+
 fn add_folder_to_model(dir_path: &Path, model: &mut dyn Model, skipped: &mut usize) -> Result<(), ()> {
     let dir = fs::read_dir(dir_path).map_err(|err| {
         eprintln!("ERROR: could not open directory {dir_path} for indexing: {err}",
@@ -134,7 +144,7 @@ fn entry() -> Result<(), ()> {
             "--sqlite" => use_sqlite_mode = true,
             _ => {
                 subcommand = Some(arg);
-                break
+                break;
             }
         }
     }
@@ -159,7 +169,7 @@ fn entry() -> Result<(), ()> {
                 if let Err(err) = fs::remove_file(index_path) {
                     if err.kind() != std::io::ErrorKind::NotFound {
                         eprintln!("ERROR: could not delete file {index_path}: {err}");
-                        return Err(())
+                        return Err(());
                     }
                 }
 
@@ -196,13 +206,7 @@ fn entry() -> Result<(), ()> {
                     println!("{path} {rank}", path = path.display());
                 }
             } else {
-                let index_file = File::open(&index_path).map_err(|err| {
-                    eprintln!("ERROR: could not open index file {index_path}: {err}");
-                })?;
-
-                let model = serde_json::from_reader::<_, InMemoryModel>(index_file).map_err(|err| {
-                    eprintln!("ERROR: could not parse index file {index_path}: {err}");
-                })?;
+                let model = load_model(&index_path)?;
 
                 for (path, rank) in model.search_query(&prompt)?.iter().take(20) {
                     println!("{path} {rank}", path = path.display());
@@ -224,14 +228,7 @@ fn entry() -> Result<(), ()> {
 
                 server::start(&address, &model)
             } else {
-                let index_file = File::open(&index_path).map_err(|err| {
-                    eprintln!("ERROR: could not open index file {index_path}: {err}");
-                })?;
-
-                let model: InMemoryModel = serde_json::from_reader(index_file).map_err(|err| {
-                    eprintln!("ERROR: could not parse index file {index_path}: {err}");
-                })?;
-
+                let model = load_model(&index_path)?;
                 server::start(&address, &model)
             }
         }
