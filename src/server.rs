@@ -2,6 +2,8 @@ use std::fs::File;
 use std::str;
 use std::io;
 
+use crate::measure_time;
+
 use super::model::*;
 
 use tiny_http::{Server, Request, Response, Header, Method, StatusCode};
@@ -76,13 +78,25 @@ fn serve_request(model: &impl Model, request: Request) -> io::Result<()> {
 
     match (request.method(), request.url()) {
         (Method::Post, "/api/search") => {
-            serve_api_search(model, request)
+            let (res, time) = measure_time(|| serve_api_search(model, request));
+            eprintln!("Search in {time}");
+            res
         }
         (Method::Get, "/index.js") => {
             serve_static_file(request, "index.js", "text/javascript; charset=utf-8")
         }
         (Method::Get, "/") | (Method::Get, "/index.html") => {
             serve_static_file(request, "index.html", "text/html; charset=utf-8")
+        }
+        (Method::Get, path) => {
+            if path.starts_with("/files/") {
+                // Make an owned copy to avoid borrow error
+                // TODO: sanitize URL to avoid host file system with "../", although the application shouldn't be used on the web
+                let rest = path["/files/".len()..].to_owned();
+                serve_static_file(request, &rest, "text/xml")
+            } else {
+                serve_404(request)
+            }
         }
         _ => {
             serve_404(request)

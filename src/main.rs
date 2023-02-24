@@ -153,27 +153,34 @@ fn entry() -> Result<(), ()> {
 
             let mut skipped = 0;
 
-            if use_sqlite_mode {
-                let index_path = "index.db";
+            let (res, time) = measure_time(|| {
+                if use_sqlite_mode {
+                    let index_path = "index.db";
 
-                if let Err(err) = fs::remove_file(index_path) {
-                    if err.kind() != std::io::ErrorKind::NotFound {
-                        eprintln!("ERROR: could not delete file {index_path}: {err}");
-                        return Err(())
+                    if let Err(err) = fs::remove_file(index_path) {
+                        if err.kind() != std::io::ErrorKind::NotFound {
+                            eprintln!("ERROR: could not delete file {index_path}: {err}");
+                            return Err(())
+                        }
                     }
-                }
 
-                let mut model = SqliteModel::open(Path::new(index_path))?;
-                model.begin()?;
-                add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
-                // TODO: implement a special transaction object that implements Drop trait and commits the transaction when it goes out of scope
-                model.commit()?;
-            } else {
-                let index_path = "index.json";
-                let mut model = Default::default();
-                add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
-                save_model_as_json(&model, index_path)?;
-            }
+                    let mut model = SqliteModel::open(Path::new(index_path))?;
+                    model.begin()?;
+                    add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
+                    // TODO: implement a special transaction object that implements Drop trait and commits the transaction when it goes out of scope
+                    model.commit()?;
+                } else {
+                    let index_path = "index.json";
+                    let mut model = Default::default();
+                    add_folder_to_model(Path::new(&dir_path), &mut model, &mut skipped)?;
+                    save_model_as_json(&model, index_path)?;
+                }
+                Ok(())
+            });
+
+            eprintln!("Indexed in {time} s");
+
+            res?;
 
             println!("Skipped {skipped} files.");
             Ok(())
@@ -190,11 +197,18 @@ fn entry() -> Result<(), ()> {
             })?.chars().collect::<Vec<_>>();
 
             if use_sqlite_mode {
-                let model = SqliteModel::open(Path::new(&index_path))?;
+                let (res, time) = measure_time(|| {
+                    let model = SqliteModel::open(Path::new(&index_path))?;
 
-                for (path, rank) in model.search_query(&prompt)?.iter().take(20) {
-                    println!("{path} {rank}", path = path.display());
-                }
+                    for (path, rank) in model.search_query(&prompt)?.iter().take(20) {
+                        println!("{path} {rank}", path = path.display());
+                    }
+                    Ok(())
+                });
+
+                res?;
+
+                eprintln!("Sqlite search time: {time} s");
             } else {
                 let index_file = File::open(&index_path).map_err(|err| {
                     eprintln!("ERROR: could not open index file {index_path}: {err}");
@@ -220,19 +234,29 @@ fn entry() -> Result<(), ()> {
             let address = args.next().unwrap_or("127.0.0.1:6969".to_string());
 
             if use_sqlite_mode {
-                let model = SqliteModel::open(Path::new(&index_path))?;
+                let (res, time) = measure_time(|| {
+                    SqliteModel::open(Path::new(&index_path))
+                });
 
-                server::start(&address, &model)
+                eprintln!("Load index file (sqlite): {time} s");
+
+                server::start(&address, &res?)
             } else {
-                let index_file = File::open(&index_path).map_err(|err| {
-                    eprintln!("ERROR: could not open index file {index_path}: {err}");
-                })?;
+                let (res, time) = measure_time(|| {
+                    let index_file = File::open(&index_path).map_err(|err| {
+                        eprintln!("ERROR: could not open index file {index_path}: {err}");
+                    })?;
 
-                let model: InMemoryModel = serde_json::from_reader(index_file).map_err(|err| {
-                    eprintln!("ERROR: could not parse index file {index_path}: {err}");
-                })?;
+                    let model: InMemoryModel = serde_json::from_reader(index_file).map_err(|err| {
+                        eprintln!("ERROR: could not parse index file {index_path}: {err}");
+                    })?;
 
-                server::start(&address, &model)
+                    Ok(model)
+                });
+
+                eprintln!("Load index file: {time} s");
+
+                server::start(&address, &res?)
             }
         }
 
@@ -249,4 +273,10 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(()) => ExitCode::FAILURE,
     }
+}
+
+fn measure_time<T>(f: impl FnOnce() -> T) -> (T, f64) {
+    let start = std::time::Instant::now();
+    let ret = f();
+    (ret, start.elapsed().as_secs_f64())
 }

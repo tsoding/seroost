@@ -29,6 +29,21 @@ impl SqliteModel {
         self.execute("COMMIT;")
     }
 
+    pub fn query_tf(&self, term: &str) -> Result<i64, ()> {
+        let query = "SELECT freq FROM DocFreq WHERE term = :term";
+        let log_err = |err| {
+            eprintln!("ERROR: Could not execute query {query}: {err}");
+        };
+        let mut stmt = self.connection.prepare(query).map_err(log_err)?;
+        stmt.bind_iter::<_, (_, sqlite::Value)>([
+            (":term", term.into()),
+        ]).map_err(log_err)?;
+        Ok(match stmt.next().map_err(log_err)? {
+            sqlite::State::Row => stmt.read::<i64, _>("freq").map_err(log_err)?,
+            sqlite::State::Done => 0
+        })
+    }
+
     pub fn open(path: &Path) -> Result<Self, ()> {
         let connection = sqlite::open(path).map_err(|err| {
             eprintln!("ERROR: could not open sqlite database {path}: {err}", path = path.display());
@@ -67,8 +82,54 @@ impl SqliteModel {
 }
 
 impl Model for SqliteModel {
-    fn search_query(&self, _query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
-        todo!()
+    fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
+        let mut result = Vec::new();
+
+        let log_err = |err| {
+            eprintln!("ERROR: Could not execute query {query:?}: {err}");
+        };
+
+        let token_freqs = Lexer::new(&query).map(|term| {
+            let freq = self.query_tf(&term)? as usize;
+            Ok((term, freq))
+        }).collect::<Result<DocFreq, _>>()?;
+
+        let mut num_documents = None;
+        self.connection.iterate("SELECT count(*) from Documents", |pairs| {
+            num_documents = pairs[0].1.unwrap().parse::<usize>().ok();
+            true
+        }).map_err(log_err)?;
+        let num_documents = num_documents.ok_or(())?;
+
+        self.connection.iterate("SELECT id, path, term_count FROM Documents", |row| {
+            let Ok(id) = row[0].1.unwrap().parse::<i32>() else { return true };
+            let path = row[1].1.unwrap();
+            let term_count = row[2].1.unwrap().parse().expect("term_count should be an integer");
+            let mut rank = 0f32;
+            for token in token_freqs.keys() {
+                let mut doc = Doc::default();
+                doc.count = term_count;
+                let Ok(mut stmt) = self.connection.prepare("SELECT doc_id, freq FROM TermFreq WHERE term = :token AND doc_id = :id")
+                    .map_err(log_err) else { return false };
+                let Ok(_) = stmt.bind_iter::<_, (_, sqlite::Value)>([
+                    (":token", token.as_str().into()),
+                    (":id", (id as i64).into()),
+                ]).map_err(log_err) else {return false};
+                if let Ok(_) = stmt.next() {
+                    let Ok(freq) = stmt.read::<i64, _>("freq").map_err(log_err) else {return false};
+                    doc.tf.insert(token.to_owned(), freq as usize);
+                }
+
+                rank += compute_tf(token, &doc) * compute_idf(&token, num_documents, &token_freqs);
+            }
+            if rank.is_finite() {
+                result.push((PathBuf::from(path), rank));
+            }
+            true
+        }).map_err(log_err)?;
+        result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).expect("Rank should be comparable"));
+        result.reverse();
+        Ok(result)
     }
 
     fn add_document(&mut self, path: PathBuf, content: &[char]) -> Result<(), ()> {
