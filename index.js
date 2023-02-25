@@ -1,3 +1,4 @@
+// TODO: live update results as you type
 async function search(prompt) {
     const results = document.getElementById("results")
     results.innerHTML = "";
