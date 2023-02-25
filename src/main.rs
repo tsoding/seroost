@@ -250,3 +250,8 @@ fn main() -> ExitCode {
         Err(()) => ExitCode::FAILURE,
     }
 }
+
+// TODO: search result must consist of clickable links
+// TODO: `index` while `serve`-ing together
+// TODO: parse pdf files
+// TODO: stemming
