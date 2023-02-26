@@ -254,4 +254,3 @@ fn main() -> ExitCode {
 // TODO: search result must consist of clickable links
 // TODO: `index` while `serve`-ing together
 // TODO: parse pdf files
-// TODO: stemming

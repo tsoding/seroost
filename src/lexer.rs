@@ -1,10 +1,13 @@
+use rust_stemmers::{Stemmer, Algorithm};
+
 pub struct Lexer<'a> {
     content: &'a [char],
+    stemmer: Stemmer,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(content: &'a [char]) -> Self {
-        Self { content }
+        Self { content, stemmer: Stemmer::create(Algorithm::English) }
     }
 
     fn trim_left(&mut self) {
@@ -38,7 +41,8 @@ impl<'a> Lexer<'a> {
         }
 
         if self.content[0].is_alphabetic() {
-            return Some(self.chop_while(|x| x.is_alphanumeric()).iter().map(|x| x.to_ascii_uppercase()).collect());
+            let word = self.chop_while(|x| x.is_alphanumeric()).iter().collect::<String>();
+            return Some(self.stemmer.stem(&word).to_ascii_uppercase());
         }
 
         return Some(self.chop(1).iter().collect());
