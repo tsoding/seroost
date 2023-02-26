@@ -129,7 +129,7 @@ fn entry() -> Result<(), ()> {
     let mut subcommand = None;
     let mut use_sqlite_mode = false;
 
-    while let Some(arg) = args.next() {
+    for arg in args.by_ref() {
         match arg.as_str() {
             "--sqlite" => use_sqlite_mode = true,
             _ => {
