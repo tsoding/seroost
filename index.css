@@ -1,0 +1,35 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    width: 100vw;
+    min-height: 100vh;
+    overflow-x: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background-color: #282828;
+    color: #fefefe;
+    font-family: Arial;
+}
+
+input {
+    width: 30vw;
+    height: 2.3rem;
+    font-size: 2rem;
+    border-radius: 9999999px;
+    text-align: center;
+    outline: none;
+    border-color: #b8bb26;
+    border-style: solid;
+    background-color: #282828;
+    color: #fefefe;
+}
+
+h1 {
+    font-size: 5rem;
+}
