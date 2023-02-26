@@ -94,11 +94,9 @@ impl Model for SqliteModel {
 
         let mut tf = TermFreq::new();
         for term in Lexer::new(content) {
-            if let Some(freq) = tf.get_mut(&term) {
-                *freq += 1;
-            } else {
-                tf.insert(term, 1);
-            }
+            tf.entry(term)
+                .and_modify(|freq| *freq += 1)
+                .or_insert(1);
         }
 
         for (term, freq) in &tf {
@@ -188,20 +186,16 @@ impl Model for InMemoryModel {
 
         let mut count = 0;
         for term in Lexer::new(content) {
-            if let Some(freq) = tf.get_mut(&term) {
-                *freq += 1;
-            } else {
-                tf.insert(term, 1);
-            }
+            tf.entry(term)
+                .and_modify(|freq| *freq += 1)
+                .or_insert(1);
             count += 1;
         }
 
         for t in tf.keys() {
-            if let Some(freq) = self.df.get_mut(t) {
-                *freq += 1;
-            } else {
-                self.df.insert(t.to_string(), 1);
-            }
+            self.df.entry(t.clone())
+                .and_modify(|freq| *freq += 1)
+                .or_insert(1);
         }
 
         self.docs.insert(file_path, Doc {count, tf});
