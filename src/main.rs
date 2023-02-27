@@ -12,6 +12,7 @@ mod model;
 use model::*;
 mod server;
 mod lexer;
+pub mod snowball;
 
 fn parse_entire_txt_file(file_path: &Path) -> Result<String, ()> {
     fs::read_to_string(file_path).map_err(|err| {
@@ -254,4 +255,3 @@ fn main() -> ExitCode {
 // TODO: search result must consist of clickable links
 // TODO: `index` while `serve`-ing in a separate thread
 // TODO: parse pdf files
-// TODO: stemming

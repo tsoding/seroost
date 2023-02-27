@@ -38,7 +38,11 @@ impl<'a> Lexer<'a> {
         }
 
         if self.content[0].is_alphabetic() {
-            return Some(self.chop_while(|x| x.is_alphanumeric()).iter().map(|x| x.to_ascii_uppercase()).collect());
+            let term = self.chop_while(|x| x.is_alphanumeric()).iter().map(|x| x.to_ascii_lowercase()).collect::<String>();
+            let mut env = crate::snowball::SnowballEnv::create(&term);
+            crate::snowball::algorithms::english_stemmer::stem(&mut env);
+            let stemmed_term = env.get_current().to_string();
+            return Some(stemmed_term);
         }
 
         return Some(self.chop(1).iter().collect());
