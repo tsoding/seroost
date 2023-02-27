@@ -170,11 +170,11 @@ pub struct InMemoryModel {
 impl Model for InMemoryModel {
     fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
         let mut result = Vec::new();
-        let tokens = Lexer::new(&query).collect::<Vec<_>>();
+        let tokens = Lexer::new(query).collect::<Vec<_>>();
         for (path, doc) in &self.docs {
             let mut rank = 0f32;
             for token in &tokens {
-                rank += compute_tf(token, doc) * compute_idf(&token, self.docs.len(), &self.df);
+                rank += compute_tf(token, doc) * compute_idf(token, self.docs.len(), &self.df);
             }
             result.push((path.clone(), rank));
         }
