@@ -1,11 +1,33 @@
 <html>
     <head>
         <title>Seroost</title>
+        <link rel="icon" type="image/png" href="favico.png">
+        <style type="text/css">
+            *{      font-family: Bahnschrift;}
+            h1{     font-size: 4rem;}
+            input{
+                    padding: 20px; padding-bottom: 10px !important;
+                    border-style: solid; border-color: black; border-width: 4px; border-radius: 50px;
+                    font-size: 2rem;
+                    }
+            img{    filter: drop-shadow(0px 30px 23px darkgray);}
+            #results{
+                    font-size: 2em;
+                    color: gray;
+                    margin: 3%;
+                    }
+        </style>
     </head>
     <body>
-        <h1>Provide Your Query:</h1>
-        <input id="query" type="text" />
-        <div id="results"></div>
+        <center>
+            <img src="rustacean.png" width="40%" style="margin-bottom: -60px;"><br>
+            <h1>Seroost</h1>
+            <input placeholder="🔍 Provide Your Query:" id="query" type="text" />
+        </center>
+            <div id="results">
+
+            </div>
+
         <script src="index.js"></script>
     </body>
 </html>
