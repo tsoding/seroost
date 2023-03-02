@@ -1,36 +1,47 @@
-use std::fs::{self, File};
-use std::path::Path;
-use xml::reader::{XmlEvent, EventReader};
-use xml::common::{Position, TextPosition};
+use jwalk::rayon::prelude::*;
 use std::env;
-use std::result::Result;
-use std::process::ExitCode;
-use std::str;
+use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
+use std::path::Path;
+use std::process::ExitCode;
+use std::result::Result;
+use std::str;
+use std::sync::atomic::AtomicUsize;
+use xml::common::{Position, TextPosition};
+use xml::reader::{EventReader, XmlEvent};
 
 mod model;
 use model::*;
-mod server;
 mod lexer;
+mod server;
 pub mod snowball;
 
 fn parse_entire_txt_file(file_path: &Path) -> Result<String, ()> {
     fs::read_to_string(file_path).map_err(|err| {
-        eprintln!("ERROR: coult not open file {file_path}: {err}", file_path = file_path.display());
+        eprintln!(
+            "ERROR: coult not open file {file_path}: {err}",
+            file_path = file_path.display()
+        );
     })
 }
 
 fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     let file = File::open(file_path).map_err(|err| {
-        eprintln!("ERROR: could not open file {file_path}: {err}", file_path = file_path.display());
+        eprintln!(
+            "ERROR: could not open file {file_path}: {err}",
+            file_path = file_path.display()
+        );
     })?;
     let er = EventReader::new(BufReader::new(file));
     let mut content = String::new();
     for event in er.into_iter() {
         let event = event.map_err(|err| {
-            let TextPosition {row, column} = err.position();
+            let TextPosition { row, column } = err.position();
             let msg = err.msg();
-            eprintln!("{file_path}:{row}:{column}: ERROR: {msg}", file_path = file_path.display());
+            eprintln!(
+                "{file_path}:{row}:{column}: ERROR: {msg}",
+                file_path = file_path.display()
+            );
         })?;
 
         if let XmlEvent::Characters(text) = event {
@@ -42,18 +53,25 @@ fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
 }
 
 fn parse_entire_file_by_extension(file_path: &Path) -> Result<String, ()> {
-    let extension = file_path.extension().ok_or_else(|| {
-        eprintln!("ERROR: can't detect file type of {file_path} without extension",
-                  file_path = file_path.display());
-    })?.to_string_lossy();
+    let extension = file_path
+        .extension()
+        .ok_or_else(|| {
+            eprintln!(
+                "ERROR: can't detect file type of {file_path} without extension",
+                file_path = file_path.display()
+            );
+        })?
+        .to_string_lossy();
     match extension.as_ref() {
         "xhtml" | "xml" => parse_entire_xml_file(file_path),
         // TODO: specialized parser for markdown files
         "txt" | "md" => parse_entire_txt_file(file_path),
         _ => {
-            eprintln!("ERROR: can't detect file type of {file_path}: unsupported extension {extension}",
-                      file_path = file_path.display(),
-                      extension = extension);
+            eprintln!(
+                "ERROR: can't detect file type of {file_path}: unsupported extension {extension}",
+                file_path = file_path.display(),
+                extension = extension
+            );
             Err(())
         }
     }
@@ -73,45 +91,50 @@ fn save_model_as_json(model: &InMemoryModel, index_path: &str) -> Result<(), ()>
     Ok(())
 }
 
-fn add_folder_to_model(dir_path: &Path, model: &mut dyn Model, skipped: &mut usize) -> Result<(), ()> {
-    let dir = fs::read_dir(dir_path).map_err(|err| {
-        eprintln!("ERROR: could not open directory {dir_path} for indexing: {err}",
-                  dir_path = dir_path.display());
-    })?;
+fn add_folder_to_model(
+    dir_path: &Path,
+    model: &mut dyn Model,
+    skipped: &mut AtomicUsize,
+) -> Result<(), ()> {
+    let dir: Vec<_> = jwalk::WalkDir::new(dir_path).into_iter().collect();
+    let documents: Vec<_> = dir
+        .into_par_iter()
+        .filter_map(|file| {
+            let file = match file {
+                Ok(file) => file,
+                Err(err) => {
+                    eprintln!(
+                "ERROR: could not read next file in directory {dir_path} during indexing: {err}",
+                dir_path = dir_path.display());
+                    return None;
+                }
+            };
 
-    'next_file: for file in dir {
-        let file = file.map_err(|err| {
-            eprintln!("ERROR: could not read next file in directory {dir_path} during indexing: {err}",
-                      dir_path = dir_path.display());
-        })?;
+            if file.file_type().is_dir() {
+                return None;
+            };
 
-        let file_path = file.path();
+            let file_path = file.path();
 
-        let file_type = file.file_type().map_err(|err| {
-            eprintln!("ERROR: could not determine type of file {file_path}: {err}",
-                      file_path = file_path.display());
-        })?;
+            // TODO: how does this work with symlinks?
 
-        if file_type.is_dir() {
-            add_folder_to_model(&file_path, model, skipped)?;
-            continue 'next_file;
-        }
+            println!("Indexing {:?}...", &file_path);
 
-        // TODO: how does this work with symlinks?
+            let content = match parse_entire_file_by_extension(&file_path) {
+                Ok(content) => content.chars().collect::<Vec<_>>(),
+                Err(()) => {
+                    skipped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return None;
+                }
+            };
 
-        println!("Indexing {:?}...", &file_path);
+            return Some((file_path, content));
+        })
+        .collect();
 
-        let content = match parse_entire_file_by_extension(&file_path) {
-            Ok(content) => content.chars().collect::<Vec<_>>(),
-            Err(()) => {
-                *skipped += 1;
-                continue 'next_file;
-            }
-        };
-
-        model.add_document(file_path, &content)?;
+    for (path, content) in documents {
+        model.add_document(path, &content)?;
     }
-
     Ok(())
 }
 
@@ -135,7 +158,7 @@ fn entry() -> Result<(), ()> {
             "--sqlite" => use_sqlite_mode = true,
             _ => {
                 subcommand = Some(arg);
-                break
+                break;
             }
         }
     }
@@ -152,7 +175,7 @@ fn entry() -> Result<(), ()> {
                 eprintln!("ERROR: no directory is provided for {subcommand} subcommand");
             })?;
 
-            let mut skipped = 0;
+            let mut skipped = AtomicUsize::new(0);
 
             if use_sqlite_mode {
                 let index_path = "index.db";
@@ -160,7 +183,7 @@ fn entry() -> Result<(), ()> {
                 if let Err(err) = fs::remove_file(index_path) {
                     if err.kind() != std::io::ErrorKind::NotFound {
                         eprintln!("ERROR: could not delete file {index_path}: {err}");
-                        return Err(())
+                        return Err(());
                     }
                 }
 
@@ -176,19 +199,26 @@ fn entry() -> Result<(), ()> {
                 save_model_as_json(&model, index_path)?;
             }
 
-            println!("Skipped {skipped} files.");
+            println!(
+                "Skipped {} files.",
+                skipped.load(std::sync::atomic::Ordering::SeqCst)
+            );
             Ok(())
-        },
+        }
         "search" => {
             let index_path = args.next().ok_or_else(|| {
                 usage(&program);
                 eprintln!("ERROR: no path to index is provided for {subcommand} subcommand");
             })?;
 
-            let prompt = args.next().ok_or_else(|| {
-                usage(&program);
-                eprintln!("ERROR: no search query is provided {subcommand} subcommand");
-            })?.chars().collect::<Vec<_>>();
+            let prompt = args
+                .next()
+                .ok_or_else(|| {
+                    usage(&program);
+                    eprintln!("ERROR: no search query is provided {subcommand} subcommand");
+                })?
+                .chars()
+                .collect::<Vec<_>>();
 
             if use_sqlite_mode {
                 let model = SqliteModel::open(Path::new(&index_path))?;
@@ -201,9 +231,10 @@ fn entry() -> Result<(), ()> {
                     eprintln!("ERROR: could not open index file {index_path}: {err}");
                 })?;
 
-                let model = serde_json::from_reader::<_, InMemoryModel>(index_file).map_err(|err| {
-                    eprintln!("ERROR: could not parse index file {index_path}: {err}");
-                })?;
+                let model =
+                    serde_json::from_reader::<_, InMemoryModel>(index_file).map_err(|err| {
+                        eprintln!("ERROR: could not parse index file {index_path}: {err}");
+                    })?;
 
                 for (path, rank) in model.search_query(&prompt)?.iter().take(20) {
                     println!("{path} {rank}", path = path.display());
