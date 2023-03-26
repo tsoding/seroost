@@ -75,7 +75,7 @@ fn save_model_as_json(model: &Model, index_path: &str) -> Result<(), ()> {
     Ok(())
 }
 
-fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<Model>>, skipped: &mut usize) -> Result<(), ()> {
+fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<Model>>, processed: &mut usize) -> Result<(), ()> {
     let dir = fs::read_dir(dir_path).map_err(|err| {
         eprintln!("ERROR: could not open directory {dir_path} for indexing: {err}",
                   dir_path = dir_path.display());
@@ -101,7 +101,7 @@ fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<Model>>, skipped: &mut 
         })?;
 
         if file_type.is_dir() {
-            add_folder_to_model(&file_path, Arc::clone(&model), skipped)?;
+            add_folder_to_model(&file_path, Arc::clone(&model), processed)?;
             continue 'next_file;
         }
 
@@ -113,17 +113,12 @@ fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<Model>>, skipped: &mut 
 
             let content = match parse_entire_file_by_extension(&file_path) {
                 Ok(content) => content.chars().collect::<Vec<_>>(),
-                Err(()) => {
-                    *skipped += 1;
-                    // TODO: still add the skipped files to the model to prevent their reindexing in the future
-                    continue 'next_file;
-                }
+                // TODO: still add the skipped files to the model to prevent their reindexing in the future
+                Err(()) => continue 'next_file,
             };
 
             model.add_document(file_path, last_modified, &content);
-        } else {
-            println!("Ignoring {file_path} cause we already indexed it", file_path = file_path.display());
-            *skipped += 1;
+            *processed += 1;
         }
     }
 
@@ -177,12 +172,14 @@ fn entry() -> Result<(), ()> {
             {
                 let model = Arc::clone(&model);
                 thread::spawn(move || {
-                    let mut skipped = 0;
+                    let mut processed = 0;
                     // TODO: what should we do in case indexing thread crashes
-                    add_folder_to_model(Path::new(&dir_path), Arc::clone(&model), &mut skipped).unwrap();
-                    let model = model.lock().unwrap();
-                    // TODO: does it make sense to save the model if we didn't index anything new?
-                    save_model_as_json(&model, index_path).unwrap();
+                    add_folder_to_model(Path::new(&dir_path), Arc::clone(&model), &mut processed).unwrap();
+                    if processed > 0 {
+                        let model = model.lock().unwrap();
+                        save_model_as_json(&model, index_path).unwrap();
+                    }
+                    println!("Finished indexing");
                 });
             }
 
