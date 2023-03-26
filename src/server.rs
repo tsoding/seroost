@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::str;
 use std::io;
+use std::sync::{Arc, Mutex};
 
 use super::model::*;
 
@@ -38,7 +39,7 @@ fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> i
 
 // TODO: the errors of serve_api_search should probably return JSON
 // 'Cause that's what expected from them.
-fn serve_api_search(model: &impl Model, mut request: Request) -> io::Result<()> {
+fn serve_api_search(model: Arc<Mutex<Model>>, mut request: Request) -> io::Result<()> {
     let mut buf = Vec::new();
     if let Err(err) = request.as_reader().read_to_end(&mut buf) {
         eprintln!("ERROR: could not read the body of the request: {err}");
@@ -53,10 +54,8 @@ fn serve_api_search(model: &impl Model, mut request: Request) -> io::Result<()> 
         }
     };
 
-    let result = match model.search_query(&body) {
-        Ok(result) => result,
-        Err(()) => return serve_500(request),
-    };
+    let model = model.lock().unwrap();
+    let result = model.search_query(&body);
 
     let json = match serde_json::to_string(&result.iter().take(20).collect::<Vec<_>>()) {
         Ok(json) => json,
@@ -71,7 +70,7 @@ fn serve_api_search(model: &impl Model, mut request: Request) -> io::Result<()> 
     request.respond(Response::from_string(&json).with_header(content_type_header))
 }
 
-fn serve_request(model: &impl Model, request: Request) -> io::Result<()> {
+fn serve_request(model: Arc<Mutex<Model>>, request: Request) -> io::Result<()> {
     println!("INFO: received request! method: {:?}, url: {:?}", request.method(), request.url());
 
     match (request.method(), request.url()) {
@@ -90,7 +89,7 @@ fn serve_request(model: &impl Model, request: Request) -> io::Result<()> {
     }
 }
 
-pub fn start(address: &str, model: &impl Model) -> Result<(), ()> {
+pub fn start(address: &str, model: Arc<Mutex<Model>>) -> Result<(), ()> {
     let server = Server::http(&address).map_err(|err| {
         eprintln!("ERROR: could not start HTTP server at {address}: {err}");
     })?;
@@ -98,7 +97,7 @@ pub fn start(address: &str, model: &impl Model) -> Result<(), ()> {
     println!("INFO: listening at http://{address}/");
 
     for request in server.incoming_requests() {
-        serve_request(model, request).map_err(|err| {
+        serve_request(Arc::clone(&model), request).map_err(|err| {
             eprintln!("ERROR: could not serve the response: {err}");
         }).ok(); // <- don't stop on errors, keep serving
     }

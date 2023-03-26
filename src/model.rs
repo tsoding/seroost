@@ -1,174 +1,45 @@
 use std::collections::HashMap;
 use std::path::{PathBuf, Path};
 use serde::{Deserialize, Serialize};
-use std::result::Result;
 use super::lexer::Lexer;
-
-pub trait Model {
-    fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()>;
-    fn add_document(&mut self, path: PathBuf, content: &[char]) -> Result<(), ()>;
-}
-
-pub struct SqliteModel {
-    connection: sqlite::Connection,
-}
-
-impl SqliteModel {
-    fn execute(&self, statement: &str) -> Result<(), ()> {
-        self.connection.execute(statement).map_err(|err| {
-            eprintln!("ERROR: could not execute query {statement}: {err}");
-        })?;
-        Ok(())
-    }
-
-    pub fn begin(&self) -> Result<(), ()> {
-        self.execute("BEGIN;")
-    }
-
-    pub fn commit(&self) -> Result<(), ()> {
-        self.execute("COMMIT;")
-    }
-
-    pub fn open(path: &Path) -> Result<Self, ()> {
-        let connection = sqlite::open(path).map_err(|err| {
-            eprintln!("ERROR: could not open sqlite database {path}: {err}", path = path.display());
-        })?;
-        let this = Self {connection};
-
-        this.execute("
-            CREATE TABLE IF NOT EXISTS Documents (
-                id INTEGER NOT NULL PRIMARY KEY,
-                path TEXT,
-                term_count INTEGER,
-                UNIQUE(path)
-            );
-        ")?;
-
-        this.execute("
-            CREATE TABLE IF NOT EXISTS TermFreq (
-                term TEXT,
-                doc_id INTEGER,
-                freq INTEGER,
-                UNIQUE(term, doc_id),
-                FOREIGN KEY(doc_id) REFERENCES Documents(id)
-            );
-       ")?;
-
-        this.execute("
-            CREATE TABLE IF NOT EXISTS DocFreq (
-                term TEXT,
-                freq INTEGER,
-                UNIQUE(term)
-            );
-        ")?;
-
-        Ok(this)
-    }
-}
-
-impl Model for SqliteModel {
-    fn search_query(&self, _query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
-        todo!()
-    }
-
-    fn add_document(&mut self, path: PathBuf, content: &[char]) -> Result<(), ()> {
-        let terms = Lexer::new(content).collect::<Vec<_>>();
-
-        let doc_id = {
-            let query = "INSERT INTO Documents (path, term_count) VALUES (:path, :count)";
-            let log_err = |err| {
-                eprintln!("ERROR: Could not execute query {query}: {err}");
-            };
-            let mut stmt = self.connection.prepare(query).map_err(log_err)?;
-            // TODO: using path.display() is probably bad in here
-            // Find a better way to represent the path in the database
-            stmt.bind_iter::<_, (_, sqlite::Value)>([
-                (":path", path.display().to_string().as_str().into()),
-                (":count", (terms.len() as i64).into()),
-            ]).map_err(log_err)?;
-            stmt.next().map_err(log_err)?;
-            unsafe {
-                sqlite3_sys::sqlite3_last_insert_rowid(self.connection.as_raw())
-            }
-        };
-
-        let mut tf = TermFreq::new();
-        for term in Lexer::new(content) {
-            if let Some(freq) = tf.get_mut(&term) {
-                *freq += 1;
-            } else {
-                tf.insert(term, 1);
-            }
-        }
-
-        for (term, freq) in &tf {
-            // TermFreq
-            {
-                let query = "INSERT INTO TermFreq(doc_id, term, freq) VALUES (:doc_id, :term, :freq)";
-                let log_err = |err| {
-                    eprintln!("ERROR: Could not execute query {query}: {err}");
-                };
-                let mut stmt = self.connection.prepare(query).map_err(log_err)?;
-                stmt.bind_iter::<_, (_, sqlite::Value)>([
-                    (":doc_id", doc_id.into()),
-                    (":term", term.as_str().into()),
-                    (":freq", (*freq as i64).into()),
-                ]).map_err(log_err)?;
-                stmt.next().map_err(log_err)?;
-            }
-
-            // DocFreq
-            {
-                let freq = {
-                    let query = "SELECT freq FROM DocFreq WHERE term = :term";
-                    let log_err = |err| {
-                        eprintln!("ERROR: Could not execute query {query}: {err}");
-                    };
-                    let mut stmt = self.connection.prepare(query).map_err(log_err)?;
-                    stmt.bind_iter::<_, (_, sqlite::Value)>([
-                        (":term", term.as_str().into()),
-                    ]).map_err(log_err)?;
-                    match stmt.next().map_err(log_err)? {
-                        sqlite::State::Row => stmt.read::<i64, _>("freq").map_err(log_err)?,
-                        sqlite::State::Done => 0
-                    }
-                };
-
-                // TODO: find a better way to auto increment the frequency
-                let query = "INSERT OR REPLACE INTO DocFreq(term, freq) VALUES (:term, :freq)";
-                let log_err = |err| {
-                    eprintln!("ERROR: Could not execute query {query}: {err}");
-                };
-                let mut stmt = self.connection.prepare(query).map_err(log_err)?;
-                stmt.bind_iter::<_, (_, sqlite::Value)>([
-                    (":term", term.as_str().into()),
-                    (":freq", (freq + 1).into()),
-                ]).map_err(log_err)?;
-                stmt.next().map_err(log_err)?;
-            }
-        }
-
-        Ok(())
-    }
-}
+use std::time::SystemTime;
 
 type DocFreq = HashMap<String, usize>;
 type TermFreq = HashMap<String, usize>;
-#[derive(Default, Deserialize, Serialize)]
-struct Doc {
+#[derive(Deserialize, Serialize)]
+pub struct Doc {
     tf: TermFreq,
     count: usize,
+    // TODO: make sure that the serde serialization of SystemTime also work on other platforms
+    last_modified: SystemTime,
 }
 type Docs = HashMap<PathBuf, Doc>;
 
 #[derive(Default, Deserialize, Serialize)]
-pub struct InMemoryModel {
-    docs: Docs,
+pub struct Model {
+    pub docs: Docs,
     df: DocFreq,
 }
 
-impl Model for InMemoryModel {
-    fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
+impl Model {
+    fn remove_document(&mut self, file_path: &Path) {
+        if let Some(doc) = self.docs.remove(file_path) {
+            for t in doc.tf.keys() {
+                if let Some(f) = self.df.get_mut(t) {
+                    *f -= 1;
+                }
+            }
+        }
+    }
+
+    pub fn requires_reindexing(&mut self, file_path: &Path, last_modified: SystemTime) -> bool {
+        if let Some(doc) = self.docs.get(file_path) {
+            return doc.last_modified < last_modified;
+        }
+        return true;
+    }
+
+    pub fn search_query(&self, query: &[char]) -> Vec<(PathBuf, f32)> {
         let mut result = Vec::new();
         let tokens = Lexer::new(&query).collect::<Vec<_>>();
         for (path, doc) in &self.docs {
@@ -180,32 +51,33 @@ impl Model for InMemoryModel {
         }
         result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).unwrap());
         result.reverse();
-        Ok(result)
+        result
     }
 
-    fn add_document(&mut self, file_path: PathBuf, content: &[char]) -> Result<(), ()> {
+    pub fn add_document(&mut self, file_path: PathBuf, last_modified: SystemTime, content: &[char]) {
+        self.remove_document(&file_path);
+
         let mut tf = TermFreq::new();
 
         let mut count = 0;
-        for term in Lexer::new(content) {
-            if let Some(freq) = tf.get_mut(&term) {
-                *freq += 1;
+        for t in Lexer::new(content) {
+            if let Some(f) = tf.get_mut(&t) {
+                *f += 1;
             } else {
-                tf.insert(term, 1);
+                tf.insert(t, 1);
             }
             count += 1;
         }
 
         for t in tf.keys() {
-            if let Some(freq) = self.df.get_mut(t) {
-                *freq += 1;
+            if let Some(f) = self.df.get_mut(t) {
+                *f += 1;
             } else {
                 self.df.insert(t.to_string(), 1);
             }
         }
 
-        self.docs.insert(file_path, Doc {count, tf});
-        Ok(())
+        self.docs.insert(file_path, Doc {count, tf, last_modified});
     }
 }
 
