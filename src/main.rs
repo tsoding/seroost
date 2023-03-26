@@ -140,27 +140,13 @@ fn entry() -> Result<(), ()> {
     let mut args = env::args();
     let program = args.next().expect("path to program is provided");
 
-    let mut subcommand = None;
-    let mut use_sqlite_mode = false;
-
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--sqlite" => use_sqlite_mode = true,
-            _ => {
-                subcommand = Some(arg);
-                break
-            }
-        }
-    }
-
-    let subcommand = subcommand.ok_or_else(|| {
+    let subcommand = args.next().ok_or_else(|| {
         usage(&program);
         eprintln!("ERROR: no subcommand is provided");
     })?;
 
     match subcommand.as_str() {
         "serve" => {
-            assert!(!use_sqlite_mode);
             let dir_path = args.next().ok_or_else(|| {
                 usage(&program);
                 eprintln!("ERROR: no directory is provided for {subcommand} subcommand");
