@@ -3,10 +3,12 @@ use std::path::{PathBuf, Path};
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 use super::lexer::Lexer;
+use std::time::SystemTime;
 
 pub trait Model {
     fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()>;
-    fn add_document(&mut self, path: PathBuf, content: &[char]) -> Result<(), ()>;
+    fn requires_reindexing(&mut self, path: &Path, last_modified: SystemTime) -> Result<bool, ()>;
+    fn add_document(&mut self, path: PathBuf, last_modified: SystemTime, content: &[char]) -> Result<(), ()>;
 }
 
 pub struct SqliteModel {
@@ -71,7 +73,11 @@ impl Model for SqliteModel {
         todo!()
     }
 
-    fn add_document(&mut self, path: PathBuf, content: &[char]) -> Result<(), ()> {
+    fn requires_reindexing(&mut self, _path: &Path, _last_modified: SystemTime) -> Result<bool, ()> {
+        Ok(true)
+    }
+
+    fn add_document(&mut self, path: PathBuf, _last_modified: SystemTime, content: &[char]) -> Result<(), ()> {
         let terms = Lexer::new(content).collect::<Vec<_>>();
 
         let doc_id = {
@@ -154,20 +160,41 @@ impl Model for SqliteModel {
 
 type DocFreq = HashMap<String, usize>;
 type TermFreq = HashMap<String, usize>;
-#[derive(Default, Deserialize, Serialize)]
-struct Doc {
+#[derive(Deserialize, Serialize)]
+pub struct Doc {
     tf: TermFreq,
     count: usize,
+    // TODO: make sure that the serde serialization of SystemTime also work on other platforms
+    last_modified: SystemTime,
 }
 type Docs = HashMap<PathBuf, Doc>;
 
 #[derive(Default, Deserialize, Serialize)]
 pub struct InMemoryModel {
-    docs: Docs,
+    pub docs: Docs,
     df: DocFreq,
 }
 
+impl InMemoryModel {
+    fn remove_document(&mut self, file_path: &Path) {
+        if let Some(doc) = self.docs.remove(file_path) {
+            for t in doc.tf.keys() {
+                if let Some(f) = self.df.get_mut(t) {
+                    *f -= 1;
+                }
+            }
+        }
+    }
+}
+
 impl Model for InMemoryModel {
+    fn requires_reindexing(&mut self, file_path: &Path, last_modified: SystemTime) -> Result<bool, ()> {
+        if let Some(doc) = self.docs.get(file_path) {
+            return Ok(doc.last_modified < last_modified);
+        }
+        return Ok(true);
+    }
+
     fn search_query(&self, query: &[char]) -> Result<Vec<(PathBuf, f32)>, ()> {
         let mut result = Vec::new();
         let tokens = Lexer::new(&query).collect::<Vec<_>>();
@@ -183,28 +210,31 @@ impl Model for InMemoryModel {
         Ok(result)
     }
 
-    fn add_document(&mut self, file_path: PathBuf, content: &[char]) -> Result<(), ()> {
+    fn add_document(&mut self, file_path: PathBuf, last_modified: SystemTime, content: &[char]) -> Result<(), ()> {
+        self.remove_document(&file_path);
+
         let mut tf = TermFreq::new();
 
         let mut count = 0;
-        for term in Lexer::new(content) {
-            if let Some(freq) = tf.get_mut(&term) {
-                *freq += 1;
+        for t in Lexer::new(content) {
+            if let Some(f) = tf.get_mut(&t) {
+                *f += 1;
             } else {
-                tf.insert(term, 1);
+                tf.insert(t, 1);
             }
             count += 1;
         }
 
         for t in tf.keys() {
-            if let Some(freq) = self.df.get_mut(t) {
-                *freq += 1;
+            if let Some(f) = self.df.get_mut(t) {
+                *f += 1;
             } else {
                 self.df.insert(t.to_string(), 1);
             }
         }
 
-        self.docs.insert(file_path, Doc {count, tf});
+        self.docs.insert(file_path, Doc {count, tf, last_modified});
+
         Ok(())
     }
 }
