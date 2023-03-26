@@ -61,7 +61,7 @@ fn parse_entire_file_by_extension(file_path: &Path) -> Result<String, ()> {
     }
 }
 
-fn save_model_as_json(model: &InMemoryModel, index_path: &str) -> Result<(), ()> {
+fn save_model_as_json(model: &Model, index_path: &str) -> Result<(), ()> {
     println!("Saving {index_path}...");
 
     let index_file = File::create(index_path).map_err(|err| {
@@ -75,7 +75,7 @@ fn save_model_as_json(model: &InMemoryModel, index_path: &str) -> Result<(), ()>
     Ok(())
 }
 
-fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<InMemoryModel>>, skipped: &mut usize) -> Result<(), ()> {
+fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<Model>>, skipped: &mut usize) -> Result<(), ()> {
     let dir = fs::read_dir(dir_path).map_err(|err| {
         eprintln!("ERROR: could not open directory {dir_path} for indexing: {err}",
                   dir_path = dir_path.display());
@@ -108,7 +108,7 @@ fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<InMemoryModel>>, skippe
         // TODO: how does this work with symlinks?
 
         let mut model = model.lock().unwrap();
-        if model.requires_reindexing(&file_path, last_modified)? {
+        if model.requires_reindexing(&file_path, last_modified) {
             println!("Indexing {:?}...", &file_path);
 
             let content = match parse_entire_file_by_extension(&file_path) {
@@ -120,7 +120,7 @@ fn add_folder_to_model(dir_path: &Path, model: Arc<Mutex<InMemoryModel>>, skippe
                 }
             };
 
-            model.add_document(file_path, last_modified, &content)?;
+            model.add_document(file_path, last_modified, &content);
         } else {
             println!("Ignoring {file_path} cause we already indexed it", file_path = file_path.display());
             *skipped += 1;
@@ -161,7 +161,7 @@ fn entry() -> Result<(), ()> {
                 eprintln!("ERROR: could not check the existence of file {index_path}: {err}");
             })?;
 
-            let model: Arc<Mutex<InMemoryModel>>;
+            let model: Arc<Mutex<Model>>;
             if exists {
                 let index_file = File::open(&index_path).map_err(|err| {
                     eprintln!("ERROR: could not open index file {index_path}: {err}");
