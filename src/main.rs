@@ -147,24 +147,46 @@ fn entry() -> Result<(), ()> {
                 eprintln!("ERROR: no directory is provided for {subcommand} subcommand");
             })?;
 
-            // TODO: figure out index_path based on dir_path
-            let index_path = "index.json";
+            let mut index_path = std::path::PathBuf::from(dir_path.clone());
+            let new_extension = index_path
+                .extension()
+                .map(|ext| {
+                    let mut ext = ext.to_string_lossy().into_owned();
+                    ext.push_str(".index.json");
+                    ext
+                })
+                .unwrap_or("index.json".to_string());
+            assert!(
+                index_path.set_extension(new_extension),
+                "failed to set the extension"
+            );
 
             let address = args.next().unwrap_or("127.0.0.1:6969".to_string());
 
-            let exists = Path::new(index_path).try_exists().map_err(|err| {
-                eprintln!("ERROR: could not check the existence of file {index_path}: {err}");
+            let exists = index_path.try_exists().map_err(|err| {
+                eprintln!(
+                    "ERROR: could not check the existence of file {index_path}: {err}",
+                    index_path = index_path.display()
+                );
             })?;
 
             let model: Arc<Mutex<Model>>;
             if exists {
                 let index_file = File::open(&index_path).map_err(|err| {
-                    eprintln!("ERROR: could not open index file {index_path}: {err}");
+                    eprintln!(
+                        "ERROR: could not open index file {index_path}: {err}",
+                        index_path = index_path.display()
+                    );
                 })?;
 
-                model = Arc::new(Mutex::new(serde_json::from_reader(index_file).map_err(|err| {
-                    eprintln!("ERROR: could not parse index file {index_path}: {err}");
-                })?));
+                model = Arc::new(Mutex::new(serde_json::from_reader(index_file).map_err(
+                    |err| {
+                        eprintln!(
+                            "ERROR: could not parse index file {index_path}: {err}",
+                            index_path = index_path.display()
+                        );
+                    },
+                )?));
             } else {
                 model = Arc::new(Mutex::new(Default::default()));
             }
@@ -177,7 +199,11 @@ fn entry() -> Result<(), ()> {
                     add_folder_to_model(Path::new(&dir_path), Arc::clone(&model), &mut processed).unwrap();
                     if processed > 0 {
                         let model = model.lock().unwrap();
-                        save_model_as_json(&model, index_path).unwrap();
+                        save_model_as_json(
+                            &model,
+                            index_path.as_os_str().to_str().expect("valid UTF-8"),
+                        )
+                        .unwrap();
                     }
                     println!("Finished indexing");
                 });
