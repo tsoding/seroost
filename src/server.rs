@@ -1,11 +1,11 @@
 use std::fs::File;
-use std::str;
 use std::io;
+use std::str;
 use std::sync::{Arc, Mutex};
 
 use super::model::*;
 
-use tiny_http::{Server, Request, Response, Header, Method, StatusCode};
+use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 fn serve_404(request: Request) -> io::Result<()> {
     request.respond(Response::from_string("404").with_status_code(StatusCode(404)))
@@ -16,7 +16,8 @@ fn serve_500(request: Request) -> io::Result<()> {
 }
 
 fn serve_400(request: Request, message: &str) -> io::Result<()> {
-    request.respond(Response::from_string(format!("400: {message}")).with_status_code(StatusCode(400)))
+    request
+        .respond(Response::from_string(format!("400: {message}")).with_status_code(StatusCode(400)))
 }
 
 fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> io::Result<()> {
@@ -61,7 +62,7 @@ fn serve_api_search(model: Arc<Mutex<Model>>, mut request: Request) -> io::Resul
         Ok(json) => json,
         Err(err) => {
             eprintln!("ERROR: could not convert search results to JSON: {err}");
-            return serve_500(request)
+            return serve_500(request);
         }
     };
 
@@ -71,21 +72,21 @@ fn serve_api_search(model: Arc<Mutex<Model>>, mut request: Request) -> io::Resul
 }
 
 fn serve_request(model: Arc<Mutex<Model>>, request: Request) -> io::Result<()> {
-    println!("INFO: received request! method: {:?}, url: {:?}", request.method(), request.url());
+    println!(
+        "INFO: received request! method: {:?}, url: {:?}",
+        request.method(),
+        request.url()
+    );
 
     match (request.method(), request.url()) {
-        (Method::Post, "/api/search") => {
-            serve_api_search(model, request)
-        }
+        (Method::Post, "/api/search") => serve_api_search(model, request),
         (Method::Get, "/index.js") => {
             serve_static_file(request, "index.js", "text/javascript; charset=utf-8")
         }
         (Method::Get, "/") | (Method::Get, "/index.html") => {
             serve_static_file(request, "index.html", "text/html; charset=utf-8")
         }
-        _ => {
-            serve_404(request)
-        }
+        _ => serve_404(request),
     }
 }
 
@@ -97,9 +98,11 @@ pub fn start(address: &str, model: Arc<Mutex<Model>>) -> Result<(), ()> {
     println!("INFO: listening at http://{address}/");
 
     for request in server.incoming_requests() {
-        serve_request(Arc::clone(&model), request).map_err(|err| {
-            eprintln!("ERROR: could not serve the response: {err}");
-        }).ok(); // <- don't stop on errors, keep serving
+        serve_request(Arc::clone(&model), request)
+            .map_err(|err| {
+                eprintln!("ERROR: could not serve the response: {err}");
+            })
+            .ok(); // <- don't stop on errors, keep serving
     }
 
     eprintln!("ERROR: the server socket has shutdown");
