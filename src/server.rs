@@ -80,6 +80,9 @@ fn serve_request(model: Arc<Mutex<Model>>, request: Request) -> io::Result<()> {
         (Method::Get, "/index.js") => {
             serve_static_file(request, "index.js", "text/javascript; charset=utf-8")
         }
+        (Method::Get, "/index.css") => {
+            serve_static_file(request, "index.css", "text/css; charset=utf-8")
+        }
         (Method::Get, "/") | (Method::Get, "/index.html") => {
             serve_static_file(request, "index.html", "text/html; charset=utf-8")
         }
