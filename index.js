@@ -1,4 +1,3 @@
-// TODO: live update results as you type
 async function search(prompt) {
     const results = document.getElementById("results")
     results.innerHTML = "";
@@ -20,8 +19,6 @@ async function search(prompt) {
 let query = document.getElementById("query");
 let currentSearch = Promise.resolve()
 
-query.addEventListener("keypress", (e) => {
-    if (e.key == "Enter") {
-        currentSearch.then(() => search(query.value));
-    }
+query.addEventListener("input", (e) => {
+    currentSearch.then(() => search(e.target.value));
 })
