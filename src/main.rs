@@ -22,6 +22,28 @@ fn parse_entire_txt_file(file_path: &Path) -> Result<String, ()> {
     })
 }
 
+fn parse_entire_pdf_file(file_path: &Path) -> Result<String, ()> {
+    use poppler::PopplerDocument;
+
+    let pdf = PopplerDocument::new_from_file(&file_path, "").map_err(|err| {
+        eprintln!("ERROR: could not read file {file_path}: {err}",
+                  file_path = file_path.display());
+    })?;
+
+    let mut result = String::new();
+
+    let n = pdf.get_n_pages();
+    for i in 0..n {
+        let page = pdf.get_page(i).expect(&format!("{i} is within the bounds of the range of the page"));
+        if let Some(content) = page.get_text() {
+            result.push_str(content);
+            result.push(' ');
+        }
+    }
+
+    Ok(result)
+}
+
 fn parse_entire_xml_file(file_path: &Path) -> Result<String, ()> {
     let file = File::open(file_path).map_err(|err| {
         eprintln!("ERROR: could not open file {file_path}: {err}", file_path = file_path.display());
@@ -52,6 +74,7 @@ fn parse_entire_file_by_extension(file_path: &Path) -> Result<String, ()> {
         "xhtml" | "xml" => parse_entire_xml_file(file_path),
         // TODO: specialized parser for markdown files
         "txt" | "md" => parse_entire_txt_file(file_path),
+        "pdf" => parse_entire_pdf_file(file_path),
         _ => {
             eprintln!("ERROR: can't detect file type of {file_path}: unsupported extension {extension}",
                       file_path = file_path.display(),
