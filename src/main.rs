@@ -23,20 +23,28 @@ fn parse_entire_txt_file(file_path: &Path) -> Result<String, ()> {
 }
 
 fn parse_entire_pdf_file(file_path: &Path) -> Result<String, ()> {
-    use poppler::PopplerDocument;
+    use poppler::Document;
+    use std::io::Read;
 
-    let pdf = PopplerDocument::new_from_file(&file_path, "").map_err(|err| {
+    let mut content = Vec::new();
+    File::open(file_path)
+        .and_then(|mut file| file.read_to_end(&mut content))
+        .map_err(|err| {
+            eprintln!("ERROR: could not read file {file_path}: {err}", file_path = file_path.display());
+        })?;
+
+    let pdf = Document::from_data(&content, None).map_err(|err| {
         eprintln!("ERROR: could not read file {file_path}: {err}",
                   file_path = file_path.display());
     })?;
 
     let mut result = String::new();
 
-    let n = pdf.get_n_pages();
+    let n = pdf.n_pages();
     for i in 0..n {
-        let page = pdf.get_page(i).expect(&format!("{i} is within the bounds of the range of the page"));
-        if let Some(content) = page.get_text() {
-            result.push_str(content);
+        let page = pdf.page(i).expect(&format!("{i} is within the bounds of the range of the page"));
+        if let Some(content) = page.text() {
+            result.push_str(content.as_str());
             result.push(' ');
         }
     }
