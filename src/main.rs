@@ -233,5 +233,4 @@ fn main() -> ExitCode {
 }
 
 // TODO: search result must consist of clickable links
-// TODO: parse pdf files
 // TODO: synonym terms
