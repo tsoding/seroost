@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::str;
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -19,22 +18,10 @@ fn serve_400(request: Request, message: &str) -> io::Result<()> {
     request.respond(Response::from_string(format!("400: {message}")).with_status_code(StatusCode(400)))
 }
 
-fn serve_static_file(request: Request, file_path: &str, content_type: &str) -> io::Result<()> {
+fn serve_bytes(request: Request, bytes: &[u8], content_type: &str) -> io::Result<()> {
     let content_type_header = Header::from_bytes("Content-Type", content_type)
         .expect("That we didn't put any garbage in the headers");
-
-    let file = match File::open(file_path) {
-        Ok(file) => file,
-        Err(err) => {
-            eprintln!("ERROR: could not serve file {file_path}: {err}");
-            if err.kind() == io::ErrorKind::NotFound {
-                return serve_404(request);
-            }
-            return serve_500(request);
-        }
-    };
-
-    request.respond(Response::from_file(file).with_header(content_type_header))
+    request.respond(Response::from_data(bytes).with_header(content_type_header))
 }
 
 // TODO: the errors of serve_api_search should probably return JSON
@@ -78,10 +65,10 @@ fn serve_request(model: Arc<Mutex<Model>>, request: Request) -> io::Result<()> {
             serve_api_search(model, request)
         }
         (Method::Get, "/index.js") => {
-            serve_static_file(request, "index.js", "text/javascript; charset=utf-8")
+            serve_bytes(request, include_bytes!("index.js"), "text/javascript; charset=utf-8")
         }
         (Method::Get, "/") | (Method::Get, "/index.html") => {
-            serve_static_file(request, "index.html", "text/html; charset=utf-8")
+            serve_bytes(request, include_bytes!("index.html"), "text/html; charset=utf-8")
         }
         _ => {
             serve_404(request)
