@@ -57,12 +57,44 @@ fn serve_api_search(model: Arc<Mutex<Model>>, mut request: Request) -> io::Resul
     request.respond(Response::from_string(&json).with_header(content_type_header))
 }
 
+fn serve_api_stats(model: Arc<Mutex<Model>>, request: Request) -> io::Result<()> {
+    use serde::Serialize;
+
+    #[derive(Default, Serialize)]
+    struct Stats {
+        docs_count: usize,
+        terms_count: usize,
+    }
+
+    let mut stats: Stats = Default::default();
+    {
+        let model = model.lock().unwrap();
+        stats.docs_count = model.docs.len();
+        stats.terms_count = model.df.len();
+    }
+
+    let json = match serde_json::to_string(&stats) {
+        Ok(json) => json,
+        Err(err) => {
+            eprintln!("ERROR: could not convert stats results to JSON: {err}");
+            return serve_500(request)
+        }
+    };
+
+    let content_type_header = Header::from_bytes("Content-Type", "application/json")
+        .expect("That we didn't put any garbage in the headers");
+    request.respond(Response::from_string(&json).with_header(content_type_header))
+}
+
 fn serve_request(model: Arc<Mutex<Model>>, request: Request) -> io::Result<()> {
     println!("INFO: received request! method: {:?}, url: {:?}", request.method(), request.url());
 
     match (request.method(), request.url()) {
         (Method::Post, "/api/search") => {
             serve_api_search(model, request)
+        }
+        (Method::Get, "/api/stats") => {
+            serve_api_stats(model, request)
         }
         (Method::Get, "/index.js") => {
             serve_bytes(request, include_bytes!("index.js"), "text/javascript; charset=utf-8")
