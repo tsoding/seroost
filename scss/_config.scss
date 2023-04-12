@@ -1,0 +1,47 @@
+@use "sass:map";
+$currentPalette: "gruber-darker";
+
+$palette: (
+  "catpuccin-mocha": (
+    "input-focus":     #a6e3a1,
+    "input":           #74c7ec,
+    "dots":            #74c7ec,
+    "text":            #cdd6f4,
+    "input-container": #585b70,
+    "bg":              #1e1e2e,
+  ),
+  "catpuccin-macchiato": (
+    "input-focus":     #a6da95,
+    "input":           #7dc4e4,
+    "dots":            #7dc4e4,
+    "text":            #cad3f5,
+    "input-container": #5b6078,
+    "bg":              #24273a,
+  ),
+  "gruber-darker": (
+    "input-focus":     #73c936,
+    "input":           #ffdd33,
+    "dots":            #ffdd33,
+    "text":            #e4e4ef,
+    "input-container": #52494e,
+    "bg":              #181818,
+  )
+);
+
+@function get-color($color: false) {
+    @if $color {
+        @return map.get(map.get($palette, $currentPalette), $color);
+    } @else {
+        @return map.get($palette, $currentPalette);
+    }
+}
+$variables: (
+  "dots": true,
+);
+@function get-var($var: false) {
+  @if $var {
+    @return map.get($variables, $var);
+  } @else {
+    @return $variables;
+  }
+}

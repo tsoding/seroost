@@ -1,3 +1,4 @@
+use std::fs;
 use std::str;
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -98,6 +99,9 @@ fn serve_request(model: Arc<Mutex<Model>>, request: Request) -> io::Result<()> {
         }
         (Method::Get, "/index.js") => {
             serve_bytes(request, include_bytes!("index.js"), "text/javascript; charset=utf-8")
+        }
+        (Method::Get, "/style.css") => {
+            serve_bytes(request, include_bytes!("../css/style.css"), "text/css")
         }
         (Method::Get, "/") | (Method::Get, "/index.html") => {
             serve_bytes(request, include_bytes!("index.html"), "text/html; charset=utf-8")

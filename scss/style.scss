@@ -1,0 +1,54 @@
+@use "config";
+
+:root {
+    --item-amount: 20;
+}
+body {
+    width: 100%;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    background-color: config.get-color("bg");
+    color: config.get-color("text");
+    font-family: sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 18px;
+    main {
+        border-radius: 3rem;
+        min-width: 25%;
+        padding: 2rem 5rem;
+        background-color: config.get-color("input-container");
+        h1 {
+            font-size: 1.6rem;
+            text-align: center;
+        }
+        input {
+            width: 100%;
+            border: none;
+            padding: 1rem;
+            background-color: config.get-color("input");
+            border-radius: 2rem;
+            font-size: 1rem;
+            outline: none;
+            transition: background-color 300ms ease-out;
+            &:focus {
+                background-color: config.get-color("input-focus");
+            }
+        }
+        #results {
+            height: calc(var(--item-amount) * 1.6rem);
+            line-height: 1.6rem;
+            @if config.get-var("dots") {
+                li::marker {
+                    color: config.get-color("dots");
+                }
+            } @else {
+                list-style-type: none;
+                margin: 0;
+                padding: 0;
+            }
+        }
+    }
+}
