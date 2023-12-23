@@ -24,8 +24,8 @@ pub struct Model {
 impl Model {
     fn remove_document(&mut self, file_path: &Path) {
         if let Some(doc) = self.docs.remove(file_path) {
-            for t in doc.tf.keys() {
-                if let Some(f) = self.df.get_mut(t) {
+            for term in doc.tf.keys() {
+                if let Some(f) = self.df.get_mut(term) {
                     *f -= 1;
                 }
             }
@@ -33,10 +33,10 @@ impl Model {
     }
 
     pub fn requires_reindexing(&mut self, file_path: &Path, last_modified: SystemTime) -> bool {
-        if let Some(doc) = self.docs.get(file_path) {
-            return doc.last_modified < last_modified;
-        }
-        return true;
+        self.docs
+            .get(file_path)
+            .filter(|doc| doc.last_modified < last_modified)
+            .is_some()
     }
 
     pub fn search_query(&self, query: &[char]) -> Vec<(PathBuf, f32)> {
@@ -62,23 +62,16 @@ impl Model {
 
         let mut tf = TermFreq::new();
 
-        let mut count = 0;
-        for t in Lexer::new(content) {
-            if let Some(f) = tf.get_mut(&t) {
-                *f += 1;
-            } else {
-                tf.insert(t, 1);
-            }
-            count += 1;
-        }
+        let count = Lexer::new(content)
+            .into_iter()
+            .map(|term| {
+                *tf.entry(term).or_insert(0) += 1;
+            })
+            .count();
 
-        for t in tf.keys() {
-            if let Some(f) = self.df.get_mut(t) {
-                *f += 1;
-            } else {
-                self.df.insert(t.to_string(), 1);
-            }
-        }
+        tf.keys().cloned().for_each(|term| {
+            *self.df.entry(term).or_insert(0) += 1;
+        });
 
         self.docs.insert(file_path, Doc {count, tf, last_modified});
     }
