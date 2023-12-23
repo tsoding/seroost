@@ -23,20 +23,19 @@ pub struct Model {
 
 impl Model {
     fn remove_document(&mut self, file_path: &Path) {
-        if let Some(doc) = self.docs.remove(file_path) {
-            for t in doc.tf.keys() {
-                if let Some(f) = self.df.get_mut(t) {
-                    *f -= 1;
-                }
-            }
-        }
+        self.docs.remove(file_path).into_iter().for_each(|mut doc| {
+            doc.tf
+                .keys()
+                .filter_map(|term| self.df.get_mut(term))
+                .for_each(|f| *f -= 1)
+        })
     }
 
     pub fn requires_reindexing(&mut self, file_path: &Path, last_modified: SystemTime) -> bool {
-        if let Some(doc) = self.docs.get(file_path) {
-            return doc.last_modified < last_modified;
-        }
-        return true;
+        self.docs
+            .get(file_path)
+            .filter(|doc| doc.last_modified < last_modified)
+            .is_some()
     }
 
     pub fn search_query(&self, query: &[char]) -> Vec<(PathBuf, f32)> {
