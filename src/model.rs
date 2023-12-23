@@ -23,12 +23,13 @@ pub struct Model {
 
 impl Model {
     fn remove_document(&mut self, file_path: &Path) {
-        self.docs.remove(file_path).into_iter().for_each(|mut doc| {
-            doc.tf
-                .keys()
-                .filter_map(|term| self.df.get_mut(term))
-                .for_each(|f| *f -= 1)
-        })
+        if let Some(doc) = self.docs.remove(file_path) {
+            for term in doc.tf.keys() {
+                if let Some(f) = self.df.get_mut(term) {
+                    *f -= 1;
+                }
+            }
+        }
     }
 
     pub fn requires_reindexing(&mut self, file_path: &Path, last_modified: SystemTime) -> bool {
@@ -64,11 +65,11 @@ impl Model {
         let count = Lexer::new(content)
             .into_iter()
             .map(|term| {
-                *tf.entry(&t).or_insert(0) += 1;
+                *tf.entry(term).or_insert(0) += 1;
             })
             .count();
 
-        tf.keys().for_each(|term| {
+        tf.keys().cloned().for_each(|term| {
             *self.df.entry(term).or_insert(0) += 1;
         });
 
