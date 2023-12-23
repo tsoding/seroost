@@ -61,23 +61,16 @@ impl Model {
 
         let mut tf = TermFreq::new();
 
-        let mut count = 0;
-        for t in Lexer::new(content) {
-            if let Some(f) = tf.get_mut(&t) {
-                *f += 1;
-            } else {
-                tf.insert(t, 1);
-            }
-            count += 1;
-        }
+        let count = Lexer::new(content)
+            .into_iter()
+            .map(|term| {
+                *tf.entry(&t).or_insert(0) += 1;
+            })
+            .count();
 
-        for t in tf.keys() {
-            if let Some(f) = self.df.get_mut(t) {
-                *f += 1;
-            } else {
-                self.df.insert(t.to_string(), 1);
-            }
-        }
+        tf.keys().for_each(|term| {
+            *self.df.entry(term).or_insert(0) += 1;
+        });
 
         self.docs.insert(file_path, Doc {count, tf, last_modified});
     }
