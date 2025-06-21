@@ -52,8 +52,7 @@ impl Model {
                 result.push((path.clone(), rank));
             }
         }
-        result.sort_by(|(_, rank1), (_, rank2)| rank1.partial_cmp(rank2).expect(&format!("{rank1} and {rank2} are not comparable")));
-        result.reverse();
+        result.sort_unstable_by(|(_, rank1), (_, rank2)| rank2.total_cmp(rank1));
         result
     }
 
